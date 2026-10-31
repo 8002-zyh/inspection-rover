@@ -11,6 +11,7 @@ import requests
 from flask import Flask, jsonify, request, Response
 from .common import configuration, credentials, now
 from .control import Guard, SerialDriver
+from .route import RouteController, RouteLibrary
 from .store import Store
 from .vision import Vision
 
@@ -21,6 +22,16 @@ class Robot:
         self.store = Store(root)
         self.guard = Guard(cfg)
         self.driver = SerialDriver(self.guard)
+        routes_root = Path(root) / 'routes'
+        example = Path(__file__).resolve().parent.parent / 'routes' / 'examples'
+        self.routes = RouteController(self.guard, RouteLibrary(routes_root))
+        # Seed library with committed examples if empty (read-only copy into runtime).
+        if example.is_dir() and not any(routes_root.glob('*.json')):
+            for src in example.glob('*.json'):
+                try:
+                    self.routes.library.save(json.loads(src.read_text(encoding='utf-8')))
+                except (OSError, ValueError, json.JSONDecodeError):
+                    pass
         self.vision = Vision(cfg)
         self.session = uuid.uuid4().hex
         self.checkpoint = None
@@ -51,7 +62,8 @@ class Robot:
                     last_upload=self.last_upload, location=self.location(),
                     control=self.guard.status(), range_error=self.range_error,
                     ranges=self.range_records, sampling=self.sampling,
-                    route_mode='manual', autonomous_available=False)
+                    route=self.routes.status(),
+                    route_mode=self.routes.mode, autonomous_available=True)
 
     def start(self):
         self.driver.start()
@@ -250,11 +262,15 @@ def make_app(robot):
     def control(action):
         data = request.get_json(silent=True) or {}
         if action == 'stop':
-            robot.guard.stop()
+            if robot.routes.mode != 'idle':
+                robot.routes.stop()
+            else:
+                robot.guard.stop()
         elif action == 'enable':
             return jsonify(lease=robot.guard.enable())
         elif action == 'heartbeat':
             robot.guard.command(data)
+            robot.routes.note_command(robot.guard.duty, robot.guard.steering - robot.cfg['steering_center'])
         else:
             raise ValueError('未知操作')
         return jsonify(robot.guard.status())
@@ -279,6 +295,34 @@ def make_app(robot):
     def sampling():
         robot.sampling = bool((request.get_json() or {}).get('enabled'))
         return jsonify(enabled=robot.sampling)
+
+    @app.get('/routes')
+    def routes_list():
+        return jsonify(robot.routes.library.list())
+
+    @app.get('/routes/status')
+    def routes_status():
+        return jsonify(robot.routes.status())
+
+    @app.post('/routes/record/start')
+    def routes_record_start():
+        name = (request.get_json(silent=True) or {}).get('name')
+        return jsonify(robot.routes.start_record(name))
+
+    @app.post('/routes/record/stop')
+    def routes_record_stop():
+        return jsonify(robot.routes.stop_record())
+
+    @app.post('/routes/play')
+    def routes_play():
+        rid = (request.get_json(silent=True) or {}).get('route_id')
+        if not rid:
+            raise ValueError('缺少 route_id')
+        return jsonify(robot.routes.play(rid))
+
+    @app.post('/routes/stop')
+    def routes_stop():
+        return jsonify(robot.routes.stop())
     return app
 
 

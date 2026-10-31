@@ -108,7 +108,9 @@ def create_app(cfg=None, secret=None, root=None):
     @login_required
     def robot(path):
         allowed = {'status': 'GET', 'preview': 'GET', 'control/enable': 'POST', 'control/stop': 'POST',
-                   'control/heartbeat': 'POST', 'checkpoint': 'POST', 'capture': 'POST', 'sampling': 'POST'}
+                   'control/heartbeat': 'POST', 'checkpoint': 'POST', 'capture': 'POST', 'sampling': 'POST',
+                   'routes': 'GET', 'routes/status': 'GET', 'routes/record/start': 'POST',
+                   'routes/record/stop': 'POST', 'routes/play': 'POST', 'routes/stop': 'POST'}
         if allowed.get(path) != request.method:
             return jsonify(error='未知接口'), 404
         try:

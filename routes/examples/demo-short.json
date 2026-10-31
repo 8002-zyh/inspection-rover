@@ -1,0 +1,16 @@
+{
+  "schema": "patrol.route.v1",
+  "id": "demo-short-01",
+  "name": "示例短路线（不可实车盲跑）",
+  "created_at": "2026-10-31T05:00:00+00:00",
+  "sample_hz": 10,
+  "max_duty": 0.03,
+  "notes": "仅作格式示例；实车需现场录制",
+  "samples": [
+    {"t": 0.0, "duty": 0.0, "steering": 0},
+    {"t": 0.5, "duty": 0.03, "steering": 0},
+    {"t": 2.0, "duty": 0.03, "steering": -40},
+    {"t": 3.5, "duty": 0.03, "steering": 0},
+    {"t": 5.0, "duty": 0.0, "steering": 0}
+  ]
+}
