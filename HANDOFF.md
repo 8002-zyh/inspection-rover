@@ -3,6 +3,7 @@
 - 分支：feat/patrol-prototype；本地提交（勿 push，除非用户批准）。
 - 已实现：路线 dry-run（无硬件可进状态机）、回放样本间隙心跳保持、工作台前进+转向同按、`/routes/record/note`、命名保存。
 - 测试：`python -m unittest discover -s tests -v`（须全绿）。
+- 今日补齐：`config.json` 的 max_duty 与测试断言已对齐 HARD_MAX_DUTY=0.07（此前仍卡 0.03）。
 - 未做：真车运动、推送、架空实测；硬件默认仍关闭。
 - 车端验证（只读/无运动）：同步代码后 `sh start_car_workbench.sh`，登录 → 路线面板 dry-run 录/放。
 - 下一项：用户在场批准后架空录第一条短路线并回放。
