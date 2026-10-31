@@ -129,7 +129,7 @@ class SerialDriver:
         good_frames = 0
         try:
             import serial
-            port = serial.Serial(self.guard.cfg['serial_port'], self.guard.cfg['serial_baud'], timeout=0, write_timeout=0.05, exclusive=True)
+            port = serial.Serial(self.guard.cfg['serial_port'], self.guard.cfg['serial_baud'], timeout=0, write_timeout=0.5, exclusive=True)
             while not self.shutdown.is_set():
                 begin = time.monotonic()
                 chunk = port.read(min(port.in_waiting, 256))
