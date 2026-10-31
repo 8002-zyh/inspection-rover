@@ -1,3 +1,12 @@
+# 当前交接：2026-10-31 21:48 CST — T-401 串口环 ~500Hz（待电池）
+
+- 分支：feat/patrol-prototype；**仅本地提交，未 push**。
+- T-401：`SerialDriver` 目标 **~500Hz**（`CHASSIS_LOOP_HZ=500`），保持 **timeout=0 非阻塞读** + `write_timeout=0.5` + `exclusive=True`；未再采用会卡写超时的 write-then-blocking-read。
+- 安全未改：`HARD_MAX_DUTY=0.07`、禁止倒车、心跳/停车帧逻辑不变。
+- 测试：`python -m unittest discover -s tests -v` → **25 passed**（含 mock 串口非阻塞写读与 monitor-only 不写）。
+- **真车运动仍未验证**：电池充电/更换中；有电且遥控关闭后做 T-402 低速脉冲（急停旁、你在场）。
+- 风险：500Hz 非阻塞在实车上是否再现 Write timeout / rpm=0，只能上车再证；若写超时，勿无限拉长 write_timeout，先抓串口日志再定。
+
 # 当前交接：2026-10-31 工作台路线录制/回放接入
 
 - 分支：feat/patrol-prototype；本地提交（勿 push，除非用户批准）。

@@ -6,7 +6,7 @@ from PIL import Image
 from werkzeug.security import generate_password_hash
 from patrol.common import configuration
 from unittest import mock
-from patrol.control import Guard, packet, feedback_sane, HARD_MAX_DUTY
+from patrol.control import Guard, SerialDriver, packet, feedback_sane, HARD_MAX_DUTY, CHASSIS_LOOP_HZ, CHASSIS_LOOP_PERIOD
 from patrol.server import create_app
 from patrol.store import Store
 
@@ -176,5 +176,132 @@ class Tests(unittest.TestCase):
             self.assertEqual(calls,['queued-event-0000','queued-event-0001'])
             self.assertEqual(robot.store.events(True),[])
             self.assertEqual(robot.store.counts()['failed'],1)
+
+
+    def test_chassis_loop_targets_vendor_rate(self):
+        self.assertEqual(CHASSIS_LOOP_HZ, 500)
+        self.assertAlmostEqual(CHASSIS_LOOP_PERIOD, 0.002)
+        self.assertGreaterEqual(CHASSIS_LOOP_HZ, 400)
+
+    def test_serial_driver_nonblocking_drain_and_write(self):
+        """Mock serial: timeout=0 drain, write_timeout=0.5, exclusive; writes when hardware on."""
+        frame = bytes([255, 0, 0, 5, 220, 0, 0, 0, 0, 0, 0, 0, 0, 254])  # sane rpm=0
+        cfg = configuration()
+        cfg.update(hardware_enabled=True, serial_port='/dev/fake', serial_baud=115200, front_sensor_id=None)
+        g = Guard(cfg)
+        driver = SerialDriver(g)
+
+        class FakePort:
+            def __init__(self):
+                self.writes = []
+                self.closed = False
+                self._rx = bytearray()
+                self.in_waiting = 0
+
+            def read(self, n):
+                # Non-blocking contract: only return bytes already queued (timeout=0 path).
+                n = min(int(n), len(self._rx), self.in_waiting)
+                chunk = bytes(self._rx[:n])
+                del self._rx[:n]
+                self.in_waiting = len(self._rx)
+                return chunk
+
+            def write(self, data):
+                self.writes.append(bytes(data))
+                if len(self._rx) < 14 * 4:
+                    self._rx.extend(frame)
+                self.in_waiting = len(self._rx)
+                return len(data)
+
+            def close(self):
+                self.closed = True
+
+        fake = FakePort()
+        open_kwargs = {}
+
+        def fake_serial(port, baud, timeout=None, write_timeout=None, exclusive=None):
+            open_kwargs.update(port=port, baud=baud, timeout=timeout,
+                               write_timeout=write_timeout, exclusive=exclusive)
+            fake._rx = bytearray(frame * 4)
+            fake.in_waiting = len(fake._rx)
+            return fake
+
+        loops = {'n': 0}
+
+        def paced_wait(timeout=None):
+            loops['n'] += 1
+            if loops['n'] >= 8 or len(fake.writes) >= 5:
+                driver.shutdown.set()
+                return True
+            return False
+
+        with mock.patch.dict('sys.modules', {'serial': mock.Mock(Serial=fake_serial)}):
+            with mock.patch.object(driver.shutdown, 'wait', side_effect=paced_wait):
+                driver.run()
+
+        self.assertEqual(open_kwargs['timeout'], 0)
+        self.assertEqual(open_kwargs['write_timeout'], 0.5)
+        self.assertTrue(open_kwargs['exclusive'])
+        self.assertGreaterEqual(len(fake.writes), 1)
+        # Steady-state writes are stop/zero duty while no lease; final stop frame may repeat.
+        self.assertTrue(all(w == packet(0.0, cfg['steering_center']) for w in fake.writes))
+        self.assertTrue(fake.closed)
+        self.assertIsNotNone(g.feedback_at)
+        self.assertEqual(g.feedback_rpm, 0)
+
+    def test_serial_driver_skips_write_when_hardware_off_monitor(self):
+        frame = bytes([255, 0, 0, 5, 220, 0, 0, 0, 0, 0, 0, 0, 0, 254])
+        cfg = configuration()
+        cfg.update(hardware_enabled=False, serial_monitor_only=True, serial_port='/dev/fake',
+                   serial_baud=115200, front_sensor_id=None)
+        g = Guard(cfg)
+        driver = SerialDriver(g)
+        writes = []
+
+        class FakePort:
+            def __init__(self):
+                self._rx = bytearray(frame * 4)
+                self.in_waiting = len(self._rx)
+                self.closed = False
+
+            def read(self, n):
+                n = min(int(n), len(self._rx), self.in_waiting)
+                chunk = bytes(self._rx[:n])
+                del self._rx[:n]
+                self.in_waiting = len(self._rx)
+                return chunk
+
+            def write(self, data):
+                writes.append(bytes(data))
+                return len(data)
+
+            def close(self):
+                self.closed = True
+
+        fake = FakePort()
+        open_kwargs = {}
+
+        def fake_serial(port, baud, timeout=None, write_timeout=None, exclusive=None):
+            open_kwargs.update(timeout=timeout, write_timeout=write_timeout, exclusive=exclusive)
+            return fake
+
+        n = {'i': 0}
+
+        def paced_wait(timeout=None):
+            n['i'] += 1
+            if n['i'] >= 5:
+                driver.shutdown.set()
+                return True
+            return False
+
+        with mock.patch.dict('sys.modules', {'serial': mock.Mock(Serial=fake_serial)}):
+            with mock.patch.object(driver.shutdown, 'wait', side_effect=paced_wait):
+                driver.run()
+
+        self.assertEqual(open_kwargs['timeout'], 0)
+        self.assertEqual(writes, [])  # hardware_enabled False: no TX, including finally
+        self.assertTrue(fake.closed)
+        self.assertEqual(g.feedback_rpm, 0)
+
 
 if __name__=='__main__':unittest.main()

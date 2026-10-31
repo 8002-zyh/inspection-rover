@@ -7,6 +7,11 @@ import time
 
 HARD_MAX_DUTY = 0.07  # Absolute forward limit; config/env cannot raise it.
 FEEDBACK_FRAMES_REQUIRED = 3  # Vendor 14-byte feedback has no checksum.
+# Vendor Orin chassis (ROSPY_Orin_chasis_control): rates below ~400Hz make motor/servo
+# abnormal; their node uses rospy.Rate(500). Keep non-blocking RX (timeout=0) so a
+# write-then-blocking-read cadence cannot starve the TX path again.
+CHASSIS_LOOP_HZ = 500
+CHASSIS_LOOP_PERIOD = 1.0 / CHASSIS_LOOP_HZ
 
 
 class Guard:
@@ -129,6 +134,7 @@ class SerialDriver:
         good_frames = 0
         try:
             import serial
+            # timeout=0: drain RX non-blocking; never block waiting for a frame between writes.
             port = serial.Serial(self.guard.cfg['serial_port'], self.guard.cfg['serial_baud'], timeout=0, write_timeout=0.5, exclusive=True)
             while not self.shutdown.is_set():
                 begin = time.monotonic()
@@ -164,7 +170,7 @@ class SerialDriver:
                 duty, steering = self.guard.output()
                 if self.guard.cfg['hardware_enabled']:
                     port.write(packet(duty, steering))
-                self.shutdown.wait(max(0, 0.01-(time.monotonic()-begin)))
+                self.shutdown.wait(max(0, CHASSIS_LOOP_PERIOD-(time.monotonic()-begin)))  # ~500Hz; vendor warns <~400Hz
         except Exception as e:
             failure = type(e).__name__ + ': ' + str(e)
             self.guard.driver_error = failure
