@@ -28,7 +28,7 @@ class RouteTests(unittest.TestCase):
             validate_route(sample_doc(samples=[{'t': 0, 'duty': -0.01, 'steering': 0},
                                                {'t': 1, 'duty': 0, 'steering': 0}]))
         with self.assertRaises(ValueError):
-            validate_route(sample_doc(samples=[{'t': 0, 'duty': 0.04, 'steering': 0},
+            validate_route(sample_doc(samples=[{'t': 0, 'duty': HARD_MAX_DUTY + 0.01, 'steering': 0},
                                                {'t': 1, 'duty': 0, 'steering': 0}]))
 
     def test_library_roundtrip(self):

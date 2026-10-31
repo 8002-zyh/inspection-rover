@@ -10,7 +10,7 @@
   "green_fraction": 0.15,
   "dedup_seconds": 20,
   "heartbeat_timeout": 0.5,
-  "max_duty": 0.03,
+  "max_duty": 0.07,
   "steering_center": 1500,
   "steering_limit": 120,
   "serial_port": "/dev/ttyTHS0",
