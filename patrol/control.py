@@ -164,7 +164,7 @@ class SerialDriver:
                 duty, steering = self.guard.output()
                 if self.guard.cfg['hardware_enabled']:
                     port.write(packet(duty, steering))
-                self.shutdown.wait(max(0, 0.01-(time.monotonic()-begin)))
+                self.shutdown.wait(max(0, 0.002-(time.monotonic()-begin)))  # vendor: <400Hz abnormal; target ~500Hz
         except Exception as e:
             failure = type(e).__name__ + ': ' + str(e)
             self.guard.driver_error = failure
