@@ -1,0 +1,15 @@
+.local-access/
+tmp/
+.venv/
+runtime/
+__pycache__/
+*.pyc
+models/
+.env
+.env.*
+*.pem
+*.key
+*.sqlite3*
+*.pt
+*.mp4
+*.zip

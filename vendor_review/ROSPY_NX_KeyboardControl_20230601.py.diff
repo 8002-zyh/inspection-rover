@@ -1,0 +1,63 @@
+--- car
+
++++ dm
+
+@@ -23,9 +23,16 @@
+
+ MAX_POSITION = 2200
+ MIN_POSITION = 800
++SCS_MODE_ACKERMAN = 0
++SCS_MODE_4MATIC_DIFF = 1
++SCS_MODE_4MATIC_SAME = 2
+ 
+ def keyType():
+     global UpFlag, DownFlag, LeftFlag, RightFlag
+     global Duty, Position
+-    
++    """
++    scs_mode = Int32()
++    scs_mode = SCS_MODE_4MATIC_DIFF 
++    scs_mode_pub.publish(scs_mode)  
++    """
+     if UpFlag and DownFlag:
+         pass
+@@ -68,8 +75,10 @@
+
+ 
+     rospy.init_node("keyboard_control")
++    scs_mode_pub = rospy.Publisher('/scs_mode', Int32, queue_size=10)    
+     motor_pub = rospy.Publisher("/motor_write_duty", Float64, queue_size=10)
+     servo_pub = rospy.Publisher("/servo_write_position", Int32, queue_size=10)
+     rate = rospy.Rate(10)
+ 
++    
+     pygame.init()
+     pygame.display.set_mode((600, 400))
+@@ -81,4 +90,5 @@
+
+     LeftFlag = RightFlag = False
+     SpaceFlag = ShiftFlag = False
++    scs_mode = SCS_MODE_ACKERMAN
+ 
+     while True:
+@@ -102,4 +112,11 @@
+
+                 elif event.key == pygame.K_SPACE:
+                     SpaceFlag = True
++                     # 切换 scs_mode
++                    if scs_mode == SCS_MODE_ACKERMAN:
++                        scs_mode = SCS_MODE_4MATIC_DIFF
++                    elif scs_mode == SCS_MODE_4MATIC_DIFF:
++                        scs_mode = SCS_MODE_4MATIC_SAME
++                    else:
++                        scs_mode = SCS_MODE_ACKERMAN
+ 
+             elif event.type == pygame.KEYUP:    # 松开按键
+@@ -120,5 +137,5 @@
+
+         servo_pub.publish(position)
+         motor_pub.publish(duty)
+-        
++        scs_mode_pub.publish(scs_mode)  # 发布 scs_mode
+         pygame.display.update()
+         rate.sleep()

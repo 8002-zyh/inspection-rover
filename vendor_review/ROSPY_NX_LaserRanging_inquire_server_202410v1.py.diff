@@ -1,0 +1,97 @@
+--- car
+
++++ dm
+
+@@ -41,5 +41,5 @@
+
+ 
+ 
+-LASER_PORT = '/dev/ttyACM0'
++LASER_PORT = '/dev/ttyACM1'
+ LASER_BAUD_RATE = 921600
+ 
+@@ -70,11 +70,14 @@
+
+         dis_status: int = resultList[11]    # 状态
+         signal_strength: int = analysisSignal(resultList[12: 14])   # 信号强度
+-        
++
+         return id, distance, signal_strength
+     else:
+-        return None, None, None
++        return 0, 0, 0
+ 
+ 
+ def inquire(id):
++    global count 
++    count+=1
++    # print("---------------------------------------------------------------------------------------------count",count)
+     # 生成查询指令
+     id_ins = hex(id)[2:] if len(hex(id)[2:]) == 2 else "0" + hex(id)[2:]
+@@ -90,29 +93,48 @@
+
+     return id, distance, signal_strength
+ 
+-
+ def callback(request: laser_ranging_srvRequest):
+-    # 检查数据类型，可省略
+-    if not isinstance(request, laser_ranging_srvRequest):
+-        return None, None, None
+-    if not isinstance(request.id_request, int):
+-        return None, None, None
++    try:
++        # 强制类型转换 + 默认值处理
++        response = laser_ranging_srvResponse()
++        result = inquire(request.id_request)
++        
++        response.id = int(result[0]) if result and result[0] is not None else 0
++        response.distance = float(result[1]) if result and len(result) > 1 else 0.0
++        response.signal_strength = int(result[2]) if result and len(result) > 2 else 0
++        
++        global call_count
++        # 检查数据类型，可省略
++        # if not isinstance(request, laser_ranging_srvRequest):
++        #     return None, None, None
++        # if not isinstance(request.id_request, int):
++        #     print("111111111111111111111111111")
++        #     return None, None, None
+     
+-    # 创建响应消息包
+-    response = laser_ranging_srvResponse()
+-    # 查询激光测距传感器的检测结果
+-    response.id, response.distance, response.signal_strength = inquire(request.id_request)
++    # # 创建响应消息包
++    #     response = laser_ranging_srvResponse()
++    # # 查询激光测距传感器的检测结果
++    #     response.id, response.distance, response.signal_strength = inquire(request.id_request)
+     
+-    if response.signal_strength == 0:
++        if response.signal_strength == 0 :
+         # 信号强度为0时，超出检测范围，终端无数据输出，服务输出数据为随机无效值
+-        rospy.loginfo("Laser ranging service: Out of detection range.")
+-    else:
+-        rospy.loginfo("Laser ranging service:\nid: %d\ndistance: %f\nsignal strength: %d", 
+-                      response.id, response.distance, response.signal_strength)
+-    return response
++            # rospy.loginfo("Laser ranging service: Out of detection range.")
++            rospy.loginfo("Laser ranging service:\nid: %d\ndistance: %f\nsignal strength: %d", 
++            response.id, response.distance, response.signal_strength)
++        else:
++            rospy.loginfo("Laser ranging service:\nid: %d\ndistance: %f\nsignal strength: %d", 
++                       response.id, response.distance, response.signal_strength)
++            call_count +=1
++            print("call_count",call_count)
++        return response
++    except Exception as e:
++        rospy.logerr("Processing failed: %s", str(e))
++        return None
+     
+ 
+ if __name__ == "__main__":
+     # 打开激光测距传感器串口
+-    Port = serial.Serial(LASER_PORT, LASER_BAUD_RATE)
++    call_count = 0 
++    count = 0
++    Port = serial.Serial(LASER_PORT, LASER_BAUD_RATE,timeout=0.1)
+     # 初始化ROS节点
+     rospy.init_node("laser_inquire_node")
