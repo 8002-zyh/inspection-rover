@@ -129,42 +129,50 @@ class SerialDriver:
         good_frames = 0
         try:
             import serial
-            port = serial.Serial(self.guard.cfg['serial_port'], self.guard.cfg['serial_baud'], timeout=0, write_timeout=0.5, exclusive=True)
+            # timeout>0 so read can wait for MCU frames between writes (vendor is write-then-read).
+            port = serial.Serial(self.guard.cfg['serial_port'], self.guard.cfg['serial_baud'], timeout=0.01, write_timeout=0.5, exclusive=True)
             while not self.shutdown.is_set():
-                begin = time.monotonic()
-                chunk = port.read(min(port.in_waiting, 256))
-                buf.extend(chunk)
-                while len(buf) >= 14:
-                    if buf[0] != 255:
-                        del buf[0]
-                        continue
-                    if buf[13] != 254:
-                        del buf[0]
-                        good_frames = 0
-                        continue
-                    if not feedback_sane(buf[:14]):
-                        del buf[0]
-                        good_frames = 0
-                        continue
-                    rpm = int.from_bytes(buf[1:3], 'big')
-                    frame_sign = buf[9] == 1
-                    del buf[:14]
-                    good_frames = min(good_frames + 1, FEEDBACK_FRAMES_REQUIRED)
-                    if good_frames >= FEEDBACK_FRAMES_REQUIRED:
-                        last_feedback = time.monotonic()
-                        with self.guard.lock:
-                            self.guard.feedback_at = self.guard.clock()
-                            self.guard.feedback_rpm = -rpm if frame_sign else rpm
+                duty, steering = self.guard.output()
+                if self.guard.cfg['hardware_enabled']:
+                    port.write(packet(duty, steering))
+                # Read until one sane frame or ~20ms, matching vendor send/receive cadence.
+                deadline = time.monotonic() + 0.02
+                got_frame = False
+                while time.monotonic() < deadline and not got_frame and not self.shutdown.is_set():
+                    chunk = port.read(max(1, min(port.in_waiting or 1, 256)))
+                    if chunk:
+                        buf.extend(chunk)
+                    while len(buf) >= 14:
+                        if buf[0] != 255:
+                            del buf[0]
+                            continue
+                        if buf[13] != 254:
+                            del buf[0]
+                            good_frames = 0
+                            continue
+                        if not feedback_sane(buf[:14]):
+                            del buf[0]
+                            good_frames = 0
+                            continue
+                        rpm = int.from_bytes(buf[1:3], 'big')
+                        frame_sign = buf[9] == 1
+                        del buf[:14]
+                        good_frames = min(good_frames + 1, FEEDBACK_FRAMES_REQUIRED)
+                        if good_frames >= FEEDBACK_FRAMES_REQUIRED:
+                            last_feedback = time.monotonic()
+                            with self.guard.lock:
+                                self.guard.feedback_at = self.guard.clock()
+                                self.guard.feedback_rpm = -rpm if frame_sign else rpm
+                            got_frame = True
+                            break
+                    if not got_frame:
+                        self.shutdown.wait(0.001)
                 with self.guard.lock:
-                    self.guard.transport_ok = bool(last_feedback and time.monotonic()-last_feedback < 0.5)
+                    self.guard.transport_ok = bool(last_feedback and time.monotonic() - last_feedback < 0.5)
                     ok = self.guard.transport_ok
                 if not ok:
                     good_frames = 0
                     self.guard.stop('底盘反馈缺失或过期')
-                duty, steering = self.guard.output()
-                if self.guard.cfg['hardware_enabled']:
-                    port.write(packet(duty, steering))
-                self.shutdown.wait(max(0, 0.005-(time.monotonic()-begin)))  # ~200Hz; 500Hz destabilized feedback on this UART
         except Exception as e:
             failure = type(e).__name__ + ': ' + str(e)
             self.guard.driver_error = failure
