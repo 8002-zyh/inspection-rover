@@ -313,6 +313,20 @@ def make_app(robot):
     def routes_record_stop():
         return jsonify(robot.routes.stop_record())
 
+    @app.post('/routes/record/note')
+    def routes_record_note():
+        """Dry-run pad samples (no Guard lease). Also harmless during live record."""
+        data = request.get_json(silent=True) or {}
+        if robot.routes.mode != 'recording':
+            raise ValueError('当前未在录制')
+        try:
+            duty = float(data.get('duty', 0))
+            steering = float(data.get('steering', 0))
+        except (TypeError, ValueError) as e:
+            raise ValueError('duty/steering 无效') from e
+        robot.routes.note_command(duty, steering)
+        return jsonify(robot.routes.status())
+
     @app.post('/routes/play')
     def routes_play():
         rid = (request.get_json(silent=True) or {}).get('route_id')

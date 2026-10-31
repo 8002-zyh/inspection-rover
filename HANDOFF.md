@@ -1,3 +1,12 @@
+# 当前交接：2026-10-31 工作台路线录制/回放接入
+
+- 分支：feat/patrol-prototype；本地提交（勿 push，除非用户批准）。
+- 已实现：路线 dry-run（无硬件可进状态机）、回放样本间隙心跳保持、工作台前进+转向同按、`/routes/record/note`、命名保存。
+- 测试：`python -m unittest discover -s tests -v`（须全绿）。
+- 未做：真车运动、推送、架空实测；硬件默认仍关闭。
+- 车端验证（只读/无运动）：同步代码后 `sh start_car_workbench.sh`，登录 → 路线面板 dry-run 录/放。
+- 下一项：用户在场批准后架空录第一条短路线并回放。
+
 # 当前交接：2026-10-31 原型源码导入
 
 - 分支：feat/patrol-prototype；任务R-008，导入源码、测试与交接；不改main，不自动合并。

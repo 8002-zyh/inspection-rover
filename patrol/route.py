@@ -86,7 +86,11 @@ class RouteLibrary:
 
 
 class RouteController:
-    """Record samples from manual commands; play feeds Guard when hardware is on."""
+    """Record samples from manual commands; play feeds Guard when hardware is on.
+
+    When hardware_enabled is false, record/play run in dry_run: state machine and
+    timeline only — no Guard.enable / serial motion.
+    """
 
     def __init__(self, guard, library, clock=time.monotonic):
         self.guard = guard
@@ -96,6 +100,7 @@ class RouteController:
         self.mode = 'idle'  # idle | recording | playing
         self.route_id = None
         self.error = ''
+        self.dry_run = False
         self._samples = []
         self._record_name = ''
         self._record_started = None
@@ -105,7 +110,7 @@ class RouteController:
     def status(self):
         with self.lock:
             return dict(mode=self.mode, route_id=self.route_id, error=self.error,
-                        sample_count=len(self._samples),
+                        sample_count=len(self._samples), dry_run=self.dry_run,
                         hardware_enabled=bool(self.guard.cfg.get('hardware_enabled')),
                         routes=self.library.list())
 
@@ -113,21 +118,23 @@ class RouteController:
         if self.mode != 'idle':
             raise ValueError('路线忙：当前为 ' + self.mode)
 
+    def _hw(self):
+        return bool(self.guard.cfg.get('hardware_enabled'))
+
     def start_record(self, name=None):
         with self.lock:
             self._require_idle()
-            if not self.guard.cfg.get('hardware_enabled'):
-                raise ValueError('硬件未启用，拒绝录制（避免无实车动作的空路线）')
+            self.dry_run = not self._hw()
             self.mode = 'recording'
             self.route_id = None
             self.error = ''
             self._samples = []
             self._record_name = (name or '现场录制').strip() or '现场录制'
             self._record_started = self.clock()
-            return dict(mode=self.mode)
+            return dict(mode=self.mode, dry_run=self.dry_run)
 
     def note_command(self, duty, steering):
-        """Call after a successful manual Guard.command while recording."""
+        """Call after a successful manual Guard.command, or dry-run pad note."""
         with self.lock:
             if self.mode != 'recording' or self._record_started is None:
                 return
@@ -141,15 +148,18 @@ class RouteController:
                 raise ValueError('当前未在录制')
             if len(self._samples) < 2:
                 self.mode = 'idle'
+                self.dry_run = False
                 self._samples = []
                 raise ValueError('样本过少，未保存')
             rid = 'route-' + uuid.uuid4().hex[:10]
+            notes = '无硬件演练录制' if self.dry_run else '现场录制'
             doc = dict(schema=SCHEMA, id=rid, name=self._record_name, created_at=now(),
-                       sample_hz=10, max_duty=HARD_MAX_DUTY, notes='现场录制',
+                       sample_hz=10, max_duty=HARD_MAX_DUTY, notes=notes,
                        samples=list(self._samples))
             self.library.save(doc)
             self.mode = 'idle'
             self.route_id = rid
+            self.dry_run = False
             self._samples = []
             self._record_started = None
             return dict(route_id=rid, mode=self.mode)
@@ -157,18 +167,19 @@ class RouteController:
     def play(self, route_id):
         with self.lock:
             self._require_idle()
-            if not self.guard.cfg.get('hardware_enabled'):
-                raise ValueError('硬件未启用，拒绝路线回放')
             doc = self.library.load(route_id)
-            if self.guard.enabled:
-                raise ValueError('已有手动控制会话，请先停止')
+            self.dry_run = not self._hw()
+            if not self.dry_run:
+                if self.guard.enabled:
+                    raise ValueError('已有手动控制会话，请先停止')
             self._stop.clear()
             self.mode = 'playing'
             self.route_id = doc['id']
             self.error = ''
-            self._play_thread = threading.Thread(target=self._run_play, args=(doc,), daemon=True)
+            target = self._run_play_dry if self.dry_run else self._run_play
+            self._play_thread = threading.Thread(target=target, args=(doc,), daemon=True)
             self._play_thread.start()
-            return dict(mode=self.mode, route_id=self.route_id)
+            return dict(mode=self.mode, route_id=self.route_id, dry_run=self.dry_run)
 
     def _run_play(self, doc):
         lease = None
@@ -180,17 +191,27 @@ class RouteController:
             t0 = self.clock()
             samples = doc['samples']
             i = 0
+            last_duty, last_steering = 0.0, 0.0
             while not self._stop.is_set() and i < len(samples):
                 elapsed = self.clock() - t0
+                advanced = False
                 while i < len(samples) and samples[i]['t'] <= elapsed:
                     sample = samples[i]
+                    last_duty = float(sample['duty'])
+                    last_steering = float(sample['steering'])
                     self.guard.command(dict(lease=lease, seq=seq,
-                                            duty=sample['duty'], steering=sample['steering']))
+                                            duty=last_duty, steering=last_steering))
                     seq += 1
                     i += 1
+                    advanced = True
+                if not advanced:
+                    # Re-issue hold so sparse gaps do not trip heartbeat_timeout.
+                    self.guard.command(dict(lease=lease, seq=seq,
+                                            duty=last_duty, steering=last_steering))
+                    seq += 1
                 if not self.guard.enabled:
                     raise ValueError(self.guard.reason or '控制已锁定')
-                time.sleep(0.02)
+                time.sleep(0.05)
             self.guard.stop('路线回放结束')
         except Exception as e:
             self.error = str(e)
@@ -198,6 +219,21 @@ class RouteController:
         finally:
             with self.lock:
                 self.mode = 'idle'
+                self.dry_run = False
+                self._play_thread = None
+
+    def _run_play_dry(self, doc):
+        try:
+            t0 = self.clock()
+            duration = float(doc['samples'][-1]['t'])
+            while not self._stop.is_set() and self.clock() - t0 < duration:
+                time.sleep(0.05)
+        except Exception as e:
+            self.error = str(e)
+        finally:
+            with self.lock:
+                self.mode = 'idle'
+                self.dry_run = False
                 self._play_thread = None
 
     def stop(self):
@@ -207,11 +243,15 @@ class RouteController:
                     return self.stop_record()
                 except ValueError:
                     self.mode = 'idle'
+                    self.dry_run = False
                     self._samples = []
-                    self.guard.stop('取消录制')
+                    if self._hw():
+                        self.guard.stop('取消录制')
                     return dict(mode='idle', cancelled=True)
             if self.mode == 'playing':
                 self._stop.set()
-            self.guard.stop('路线停止')
+            if self._hw():
+                self.guard.stop('路线停止')
             self.mode = 'idle'
+            self.dry_run = False
             return dict(mode=self.mode)
