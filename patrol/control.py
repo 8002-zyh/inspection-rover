@@ -5,7 +5,7 @@ import secrets
 import threading
 import time
 
-HARD_MAX_DUTY = 0.03  # Absolute forward limit; config/env cannot raise it.
+HARD_MAX_DUTY = 0.07  # Absolute forward limit; config/env cannot raise it.
 FEEDBACK_FRAMES_REQUIRED = 3  # Vendor 14-byte feedback has no checksum.
 
 
