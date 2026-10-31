@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -93,7 +94,7 @@ class Store:
         result = []
         for r in rows:
             item = json.loads(r['payload'])
-            item.update(image=r['image'], received_at=r['received'], uploaded=bool(r['uploaded']))
+            item.update(image=r['image'], received_at=r['received'], uploaded=r['uploaded'] == 1)
             result.append(item)
         return result
 
@@ -101,9 +102,15 @@ class Store:
         with self.connect() as c:
             c.execute('UPDATE events SET uploaded=1 WHERE id=?', (eid,))
 
+    def fail(self, eid, reason=''):
+        """Permanent upload rejection: uploaded=2 leaves the pending queue but keeps evidence."""
+        with self.connect() as c:
+            c.execute('UPDATE events SET uploaded=2, attempts=attempts+1 WHERE id=?', (eid,))
+        logging.warning('Event %s rejected permanently: %s', eid, reason)
+
     def counts(self):
         with self.connect() as c:
-            return dict(c.execute('SELECT count(*) AS total, sum(CASE WHEN uploaded=0 THEN 1 ELSE 0 END) AS pending FROM events').fetchone())
+            return dict(c.execute('SELECT count(*) AS total, sum(CASE WHEN uploaded=0 THEN 1 ELSE 0 END) AS pending, sum(CASE WHEN uploaded=2 THEN 1 ELSE 0 END) AS failed FROM events').fetchone())
 
     def task_create(self, eid):
         with self.connect() as c:

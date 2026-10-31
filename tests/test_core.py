@@ -5,7 +5,8 @@ import unittest
 from PIL import Image
 from werkzeug.security import generate_password_hash
 from patrol.common import configuration
-from patrol.control import Guard, packet
+from unittest import mock
+from patrol.control import Guard, packet, feedback_sane, HARD_MAX_DUTY
 from patrol.server import create_app
 from patrol.store import Store
 
@@ -20,7 +21,7 @@ class Tests(unittest.TestCase):
         g=Guard(cfg,lambda:t[0]);g.transport_ok=True
         g.ranges[0]=dict(at=t[0],valid=True,distance=2.0)
         lease=g.enable();g.command(dict(lease=lease,seq=0,duty=1,steering=99999))
-        self.assertEqual(g.output(),(.04,1620))
+        self.assertEqual(g.output(),(.03,1620))
         with self.assertRaises(ValueError):g.command(dict(lease=lease,seq=0,duty=.03,steering=0))
         t[0]+=.501;self.assertEqual(g.output()[0],0);self.assertFalse(g.enabled)
         with self.assertRaises(ValueError):g.command(dict(lease=lease,seq=1,duty=.03,steering=0))
@@ -113,5 +114,67 @@ class Tests(unittest.TestCase):
             self.assertEqual(client.get('/api/tasks').json[0]['state'],'review')
             self.assertEqual(client.post(base+'close',headers=headers).status_code,200)
             self.assertEqual(Store(root).tasks()[0]['state'],'closed')
+
+    def _guard(self):
+        t=[10.0];cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0)
+        g=Guard(cfg,lambda:t[0]);g.transport_ok=True;g.ranges[0]=dict(at=t[0],valid=True,distance=2.0)
+        return g,t
+
+    def test_negative_duty_clamped_to_zero(self):
+        g,t=self._guard();l=g.enable();g.command(dict(lease=l,seq=0,duty=-.03,steering=0))
+        self.assertEqual(g.output()[0],0.0)
+
+    def test_hard_max_duty_ignores_config(self):
+        g,t=self._guard();g.cfg['max_duty']=1;l=g.enable();g.command(dict(lease=l,seq=0,duty=1,steering=0))
+        self.assertLessEqual(g.output()[0],HARD_MAX_DUTY);self.assertEqual(HARD_MAX_DUTY,.03)
+
+    def test_bad_heartbeat_fields_rejected(self):
+        g,t=self._guard()
+        for bad in (dict(seq=0,duty=.01,steering=0),dict(lease='x',seq=0,duty=.01,steering=0)):
+            with self.assertRaises(ValueError):g.command(bad)
+            self.assertFalse(g.enabled)
+        l=g.enable()
+        for bad in (dict(lease=l,duty=.01,steering=0),dict(lease=l,seq='a',duty=.01,steering=0),dict(lease=l,seq=0,duty=None,steering=0)):
+            with self.assertRaises(ValueError):g.command(bad)
+        self.assertEqual(g.output()[0],0.0)
+
+    def test_heartbeat_http_400(self):
+        from patrol.robot import make_app
+        g,t=self._guard()
+        robot=mock.Mock();robot.guard=g;robot.secrets={'device_token':'tok'}
+        c=make_app(robot).test_client()
+        r=c.post('/control/heartbeat',json={'seq':0},headers={'X-Device-Token':'tok'})
+        self.assertEqual(r.status_code,400);self.assertFalse(g.enabled)
+
+    def test_cleared_ranges_stop(self):
+        g,t=self._guard();l=g.enable();g.command(dict(lease=l,seq=0,duty=.03,steering=0))
+        self.assertEqual(g.output()[0],.03)
+        with g.lock:g.ranges.clear()
+        self.assertEqual(g.output()[0],0.0);self.assertFalse(g.enabled)
+
+    def test_feedback_frame_sanity(self):
+        ok=bytes([255,0,0,5,220,0,0,0,0,0,0,0,0,254])
+        self.assertTrue(feedback_sane(ok))
+        self.assertFalse(feedback_sane(ok[:9]+bytes([7])+ok[10:]))
+        self.assertFalse(feedback_sane(bytes([255,0xff,0xff])+ok[3:]))
+
+    def test_upload_permanent_failure_does_not_block(self):
+        from patrol.robot import Robot
+        with tempfile.TemporaryDirectory() as root:
+            cfg=configuration();robot=Robot(cfg,{'device_token':'t'},root)
+            for i in range(2):
+                robot.store.put(dict(event_id='queued-event-%04d'%i,device_id='car',captured_at='2026-10-29T00:00:0%dZ'%i,category='manual_capture',location={}),jpeg())
+            calls=[]
+            def post(url,**kw):
+                eid=json.loads(kw['data']['metadata'])['event_id'];calls.append(eid)
+                r=mock.Mock();r.status_code=400 if eid.endswith('0') else 200;r.text='bad'
+                r.json.return_value={'event_id':eid};r.raise_for_status.return_value=None
+                if len(calls)>=2:robot.quit.set()
+                return r
+            with mock.patch('patrol.robot.requests.Session') as S:
+                S.return_value.post.side_effect=post;robot.uploader()
+            self.assertEqual(calls,['queued-event-0000','queued-event-0001'])
+            self.assertEqual(robot.store.events(True),[])
+            self.assertEqual(robot.store.counts()['failed'],1)
 
 if __name__=='__main__':unittest.main()

@@ -36,6 +36,7 @@ class Robot:
         self.sampling = False
         self.range_error = '测距尚未启动'
         self.range_records = {}
+        self.queue_bytes = None  # cached image bytes; computed once, then updated on save/cleanup
 
     def location(self):
         return dict(source='manual_checkpoint' if self.checkpoint else 'unavailable',
@@ -97,19 +98,22 @@ class Robot:
                 if time.monotonic()-last_sample < self.cfg['capture_interval'] and not manual:
                     continue
                 last_sample = time.monotonic()
-                if sum(p.stat().st_size for p in self.store.images.glob('*') if p.is_file()) >= self.cfg['max_queue_bytes']:
+                if self.queue_bytes is None:
+                    self.queue_bytes = sum(p.stat().st_size for p in self.store.images.glob('*') if p.is_file())
+                if self.queue_bytes >= self.cfg['max_queue_bytes']:
                     self.error = '本地图片达到容量上限，停止保存；未删除证据'
                     continue
                 location = self.location()
                 findings = self.vision.detect(image)
                 sid = self.cfg.get('front_sensor_id')
-                reading = self.guard.ranges.get(sid)
+                with self.guard.lock:
+                    reading = self.guard.ranges.get(sid)
                 if reading and reading['valid'] and time.monotonic()-reading['at'] < 0.5 and reading['distance'] < self.cfg['stop_distance_m']:
                     findings.append(dict(category='obstacle', confidence=None, distance_m=reading['distance'], method='测距'))
                 for finding in findings:
                     event = self.vision.event(finding, location, self.session, captured)
-                    if event:
-                        self.store.put(event, jpeg)
+                    if event and self.store.put(event, jpeg):
+                        self.queue_bytes += len(jpeg)
                 if manual or self.sampling or not self.vision.model:
                     category = 'manual_capture' if manual else 'pending_inference' if not self.vision.model else 'inspection_sample'
                     payload = dict(event_id=uuid.uuid4().hex, device_id=self.cfg['device_id'],
@@ -117,7 +121,8 @@ class Robot:
                                    location=location, session_id=self.session,
                                    model_version=self.vision.version,
                                    inference_state='pending' if not self.vision.model else 'identified')
-                    self.store.put(payload, jpeg)
+                    if self.store.put(payload, jpeg):
+                        self.queue_bytes += len(jpeg)
         except Exception as e:
             self.error = str(e)
         finally:
@@ -146,12 +151,25 @@ class Robot:
                             headers={'X-Device-Token': self.secrets['device_token']},
                             data={'metadata': json.dumps(row, ensure_ascii=False)},
                             files={'image': ('capture.jpg', f, 'image/jpeg')}, timeout=(3, 12))
+                    if 400 <= result.status_code < 500 and result.status_code not in (401, 429):
+                        # Permanent rejection: mark failed so later events are not blocked.
+                        self.store.fail(row['event_id'], '%d %s' % (result.status_code, result.text[:200]))
+                        self.upload_error = '事件%s被服务端拒绝: %d' % (row['event_id'], result.status_code)
+                        continue
                     result.raise_for_status()
                     if result.json().get('event_id') != row['event_id']:
                         raise ValueError('服务端未确认对应事件')
                     self.store.ack(row['event_id'])
                     self.last_upload = now()
-                self.upload_error, delay = '', 1
+                    if self.cfg.get('delete_uploaded_images', False):
+                        target = self.store.images / image
+                        size = target.stat().st_size if target.exists() else 0
+                        target.unlink(missing_ok=True)
+                        if self.queue_bytes is not None:
+                            self.queue_bytes = max(0, self.queue_bytes - size)
+                if not self.upload_error.startswith('事件'):
+                    self.upload_error = ''
+                delay = 1
             except Exception as e:
                 self.upload_error = str(e)
                 self.quit.wait(delay)
@@ -161,7 +179,8 @@ class Robot:
         while not self.quit.is_set():
             self.measure_connection()
             self.range_records = {sid: dict(r, valid=False) for sid, r in self.range_records.items()}
-            self.guard.ranges.clear()
+            with self.guard.lock:
+                self.guard.ranges.clear()
             self.quit.wait(2)
 
     def measure_connection(self):
@@ -171,7 +190,11 @@ class Robot:
             port = serial.Serial(self.cfg['range_port'], self.cfg['range_baud'], timeout=0.08, write_timeout=0.2, exclusive=True)
             while not self.quit.is_set():
                 records = {}
-                for sid in range(4):
+                front = self.cfg.get('front_sensor_id')
+                others = [s for s in range(4) if s != front]
+                # Front sensor between every other sensor: refresh period ~2 reads (<0.2s).
+                order = [s for o in others for s in ((front, o) if front is not None else (o,))]
+                for sid in order:
                     port.reset_input_buffer()
                     cmd = bytes([0x57, 0x10, 255, 255, sid, 255, 255])
                     port.write(cmd + bytes([sum(cmd)&255]))
@@ -181,7 +204,8 @@ class Robot:
                     strength = int.from_bytes(data[12:14], 'little') if valid else 0
                     valid = bool(valid and strength > 0 and data[11]==0 and distance > 0)
                     records[sid] = dict(distance=distance, strength=strength, valid=valid, captured_at=now())
-                    self.guard.ranges[sid] = dict(records[sid], at=time.monotonic())
+                    with self.guard.lock:
+                        self.guard.ranges[sid] = dict(records[sid], at=time.monotonic())
                 self.range_records = records
                 self.range_error = '' if any(r['valid'] for r in records.values()) else '无有效测距；传感器朝向尚需现场确认'
                 self.quit.wait(0.02)
@@ -209,7 +233,7 @@ def make_app(robot):
 
     @app.errorhandler(ValueError)
     def bad(e):
-        return jsonify(error=str(e)), 409
+        return jsonify(error=str(e)), 400
 
     @app.get('/status')
     def status():
@@ -274,4 +298,4 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
     robot.start()
-    make_app(robot).run(host='0.0.0.0', port=8766, threaded=True, debug=False, use_reloader=False)
+    make_app(robot).run(host=robot.cfg.get('robot_bind_host', '127.0.0.1'), port=8766, threaded=True, debug=False, use_reloader=False)

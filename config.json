@@ -10,7 +10,7 @@
   "green_fraction": 0.15,
   "dedup_seconds": 20,
   "heartbeat_timeout": 0.5,
-  "max_duty": 0.04,
+  "max_duty": 0.03,
   "steering_center": 1500,
   "steering_limit": 120,
   "serial_port": "/dev/ttyTHS0",
@@ -20,5 +20,8 @@
   "front_sensor_id": 0,
   "stop_distance_m": 0.5,
   "hardware_enabled": false,
+  "delete_uploaded_images": false,
+  "robot_bind_host": "127.0.0.1",
+  "server_bind_host": "127.0.0.1",
   "categories": {"bottle": "litter_bottle", "cup": "litter_cup"}
 }

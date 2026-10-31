@@ -5,6 +5,9 @@ import secrets
 import threading
 import time
 
+HARD_MAX_DUTY = 0.03  # Absolute forward limit; config/env cannot raise it.
+FEEDBACK_FRAMES_REQUIRED = 3  # Vendor 14-byte feedback has no checksum.
+
 
 class Guard:
     def __init__(self, cfg, clock=time.monotonic):
@@ -49,15 +52,19 @@ class Guard:
             self.output()
             if not self.enabled or data.get('lease') != self.lease:
                 raise ValueError('控制会话失效，请重新使能')
-            seq = int(data['seq'])
+            try:
+                seq = int(data['seq'])
+                duty, steer = float(data['duty']), float(data['steering'])
+            except (KeyError, TypeError, ValueError) as e:
+                raise ValueError('控制字段缺失或类型错误') from e
             if seq <= self.seq:
                 raise ValueError('过期控制指令')
-            duty, steer = float(data['duty']), float(data['steering'])
             if not math.isfinite(duty) or not math.isfinite(steer):
                 self.stop('无效控制数据')
                 raise ValueError('控制值必须有限')
             self.seq, self.last = seq, self.clock()
-            self.duty = max(-self.cfg['max_duty'], min(self.cfg['max_duty'], duty))
+            limit_duty = min(float(self.cfg['max_duty']), HARD_MAX_DUTY)
+            self.duty = max(0.0, min(limit_duty, duty))  # No reverse: no rear range sensor.
             limit = self.cfg['steering_limit']
             self.steering = int(self.cfg['steering_center'] + max(-limit, min(limit, steer)))
             self.output()  # Apply obstacle guard before releasing the command lock.
@@ -93,6 +100,15 @@ def packet(duty, steering):
             int(steering).to_bytes(2, 'little') + b'\x00\x00\xfe')
 
 
+def feedback_sane(frame):
+    """Range checks from vendor parser (ROSPY_Orin_chasis_control); no checksum exists."""
+    if len(frame) != 14 or frame[0] != 255 or frame[13] != 254:
+        return False
+    rpm = int.from_bytes(frame[1:3], 'big')
+    return (rpm <= 5000 and frame[5] <= 2 and frame[6] <= 2
+            and frame[7] <= 1 and frame[8] <= 1 and frame[9] <= 1 and frame[12] <= 1)
+
+
 class SerialDriver:
     def __init__(self, guard):
         self.guard = guard
@@ -110,6 +126,7 @@ class SerialDriver:
         failure = None
         last_feedback = 0
         buf = bytearray()
+        good_frames = 0
         try:
             import serial
             port = serial.Serial(self.guard.cfg['serial_port'], self.guard.cfg['serial_baud'], timeout=0, write_timeout=0.05, exclusive=True)
@@ -123,14 +140,26 @@ class SerialDriver:
                         continue
                     if buf[13] != 254:
                         del buf[0]
+                        good_frames = 0
                         continue
-                    last_feedback = time.monotonic()
-                    self.guard.feedback_at = self.guard.clock()
+                    if not feedback_sane(buf[:14]):
+                        del buf[0]
+                        good_frames = 0
+                        continue
                     rpm = int.from_bytes(buf[1:3], 'big')
-                    self.guard.feedback_rpm = -rpm if buf[9] == 1 else rpm
+                    frame_sign = buf[9] == 1
                     del buf[:14]
-                self.guard.transport_ok = bool(last_feedback and time.monotonic()-last_feedback < 0.5)
-                if not self.guard.transport_ok:
+                    good_frames = min(good_frames + 1, FEEDBACK_FRAMES_REQUIRED)
+                    if good_frames >= FEEDBACK_FRAMES_REQUIRED:
+                        last_feedback = time.monotonic()
+                        with self.guard.lock:
+                            self.guard.feedback_at = self.guard.clock()
+                            self.guard.feedback_rpm = -rpm if frame_sign else rpm
+                with self.guard.lock:
+                    self.guard.transport_ok = bool(last_feedback and time.monotonic()-last_feedback < 0.5)
+                    ok = self.guard.transport_ok
+                if not ok:
+                    good_frames = 0
                     self.guard.stop('底盘反馈缺失或过期')
                 duty, steering = self.guard.output()
                 if self.guard.cfg['hardware_enabled']:
@@ -148,8 +177,9 @@ class SerialDriver:
                 try:
                     if self.guard.cfg['hardware_enabled']:
                         port.write(packet(0.0, self.guard.cfg['steering_center']))
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.guard.driver_error = ((failure + '; ') if failure else '') + '停车帧未送达: ' + type(e).__name__ + ': ' + str(e)
+                    logging.error('Stop frame not delivered: %s', e)
                 port.close()
 
     def close(self):

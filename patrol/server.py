@@ -124,4 +124,4 @@ def create_app(cfg=None, secret=None, root=None):
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(create_app(), host='0.0.0.0', port=8765, threads=12)
+    serve(create_app(), host=configuration().get('server_bind_host', '127.0.0.1'), port=8765, threads=12)
