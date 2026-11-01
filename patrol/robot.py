@@ -271,6 +271,9 @@ def make_app(robot):
         elif action == 'heartbeat':
             robot.guard.command(data)
             robot.routes.note_command(robot.guard.duty, robot.guard.steering - robot.cfg['steering_center'])
+        elif action == 'lights':
+            # Independent of drive lease so night fill light can stay on while locked.
+            robot.guard.set_lights(headlight=data.get('headlight'), hazard=data.get('hazard'))
         else:
             raise ValueError('未知操作')
         return jsonify(robot.guard.status())

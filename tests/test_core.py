@@ -21,7 +21,7 @@ class Tests(unittest.TestCase):
         g=Guard(cfg,lambda:t[0]);g.transport_ok=True
         g.ranges[0]=dict(at=t[0],valid=True,distance=2.0)
         lease=g.enable();g.command(dict(lease=lease,seq=0,duty=1,steering=99999))
-        self.assertEqual(g.output(),(HARD_MAX_DUTY,1800))
+        self.assertEqual(g.output(),(HARD_MAX_DUTY,1800,False))
         with self.assertRaises(ValueError):g.command(dict(lease=lease,seq=0,duty=.03,steering=0))
         t[0]+=.501;self.assertEqual(g.output()[0],0);self.assertFalse(g.enabled)
         with self.assertRaises(ValueError):g.command(dict(lease=lease,seq=1,duty=.03,steering=0))
@@ -306,6 +306,37 @@ class Tests(unittest.TestCase):
         self.assertEqual(writes, [])  # hardware_enabled False: no TX, including finally
         self.assertTrue(fake.closed)
         self.assertEqual(g.feedback_rpm, 0)
+
+
+    def test_packet_headlight_byte(self):
+        self.assertEqual(packet(0.0,1500,False),b'\xff\x00\x00\x00\xdc\x05\x00\x00\xfe')
+        self.assertEqual(packet(0.0,1500,True),b'\xff\x00\x00\x00\xdc\x05\x00\x01\xfe')
+        self.assertEqual(packet(0.07,1500,True)[7],1)
+
+    def test_set_lights_headlight_and_hazard_unsupported(self):
+        g,_=self._guard()
+        self.assertFalse(g.status()['headlight'])
+        self.assertFalse(g.status()['hazard_supported'])
+        out=g.set_lights(headlight=True)
+        self.assertTrue(out['headlight'])
+        self.assertEqual(g.output()[2],True)
+        self.assertTrue(g.status()['headlight'])
+        with self.assertRaises(ValueError):
+            g.set_lights(hazard=True)
+        self.assertFalse(g.hazard)
+        g.set_lights(headlight=False)
+        self.assertFalse(g.output()[2])
+
+    def test_lights_http(self):
+        from patrol.robot import make_app
+        g,_=self._guard()
+        robot=mock.Mock();robot.guard=g;robot.secrets={'device_token':'tok'};robot.cfg=g.cfg;robot.routes=mock.Mock(mode='idle')
+        c=make_app(robot).test_client()
+        r=c.post('/control/lights',json={'headlight':True},headers={'X-Device-Token':'tok'})
+        self.assertEqual(r.status_code,200)
+        self.assertTrue(r.json['headlight'])
+        r=c.post('/control/lights',json={'hazard':True},headers={'X-Device-Token':'tok'})
+        self.assertEqual(r.status_code,400)
 
 
 if __name__=='__main__':unittest.main()

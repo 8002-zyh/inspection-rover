@@ -31,6 +31,10 @@ class Guard:
         self.feedback_at = None
         self.driver_error = ''
         self.ranges = {}
+        self.headlight = False
+        # Vendor TX frame only has Headlight (0/1). Turn/hazard appear in RX only.
+        self.hazard = False
+        self.hazard_supported = False
 
     def stop(self, reason='操作员停止'):
         with self.lock:
@@ -90,22 +94,38 @@ class Guard:
                     self.stop('前方测距失效')
                 elif reading['distance'] <= self.cfg['stop_distance_m']:
                     self.stop('前方障碍停车')
-            return self.duty if self.enabled else 0.0, self.steering
+            return self.duty if self.enabled else 0.0, self.steering, self.headlight
+
+    def set_lights(self, headlight=None, hazard=None):
+        """Headlight is UART-controllable; hazard/双闪 is not in vendor TX."""
+        with self.lock:
+            if hazard is not None:
+                want = bool(hazard)
+                if want and not self.hazard_supported:
+                    raise ValueError('厂家串口协议无双闪/转向灯控制字节（转向灯仅出现在反馈帧），无法软件开关双闪')
+                self.hazard = want
+            if headlight is not None:
+                self.headlight = bool(headlight)
+            return dict(headlight=self.headlight, hazard=self.hazard,
+                        hazard_supported=self.hazard_supported)
 
     def status(self):
-        duty, steering = self.output()
+        duty, steering, headlight = self.output()
         with self.lock:
             age = None if self.feedback_at is None else max(0, self.clock()-self.feedback_at)
             return dict(enabled=self.enabled, hardware_enabled=self.cfg['hardware_enabled'],
                         transport_ok=self.transport_ok and age is not None and age < 0.5,
                         feedback_rpm=self.feedback_rpm if age is not None and age < 0.5 else None,
                         feedback_age_seconds=age, driver_error=self.driver_error, reason=self.reason, duty=duty,
-                        steering=steering, mode='manual', obstacle_protection=self.cfg.get('front_sensor_id') is not None)
+                        steering=steering, mode='manual', obstacle_protection=self.cfg.get('front_sensor_id') is not None,
+                        headlight=headlight, hazard=self.hazard, hazard_supported=self.hazard_supported)
 
 
-def packet(duty, steering):
+def packet(duty, steering, headlight=False):
+    # Vendor: mode(1)=0 Ackerman + Headlight(1) 0x00/0x01; no turn/hazard TX byte.
+    light = b'\x01' if headlight else b'\x00'
     return (b'\xff' + bytes([int(duty < 0)]) + int(round(abs(duty)*100)).to_bytes(2, 'little') +
-            int(steering).to_bytes(2, 'little') + b'\x00\x00\xfe')
+            int(steering).to_bytes(2, 'little') + b'\x00' + light + b'\xfe')
 
 
 def feedback_sane(frame):
@@ -170,9 +190,9 @@ class SerialDriver:
                 if not ok:
                     good_frames = 0
                     self.guard.stop('底盘反馈缺失或过期')
-                duty, steering = self.guard.output()
+                duty, steering, headlight = self.guard.output()
                 if self.guard.cfg['hardware_enabled']:
-                    port.write(packet(duty, steering))
+                    port.write(packet(duty, steering, headlight))
                 self.shutdown.wait(max(0, CHASSIS_LOOP_PERIOD-(time.monotonic()-begin)))  # ~500Hz; vendor warns <~400Hz
         except Exception as e:
             failure = type(e).__name__ + ': ' + str(e)
@@ -185,7 +205,7 @@ class SerialDriver:
             if port:
                 try:
                     if self.guard.cfg['hardware_enabled']:
-                        port.write(packet(0.0, self.guard.cfg['steering_center']))
+                        port.write(packet(0.0, self.guard.cfg['steering_center'], False))
                 except Exception as e:
                     self.guard.driver_error = ((failure + '; ') if failure else '') + '停车帧未送达: ' + type(e).__name__ + ': ' + str(e)
                     logging.error('Stop frame not delivered: %s', e)
