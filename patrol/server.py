@@ -18,7 +18,7 @@ def create_app(cfg=None, secret=None, root=None):
     app = Flask(__name__)
     app.secret_key = secret['session_key']
     app.config.update(MAX_CONTENT_LENGTH=12*1024*1024, SESSION_COOKIE_HTTPONLY=True,
-                      SESSION_COOKIE_SAMESITE='Strict')
+                      SESSION_COOKIE_SAMESITE='Lax')
     app.store = store
     net = requests.Session()
     net.trust_env = False

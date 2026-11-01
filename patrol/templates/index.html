@@ -21,9 +21,9 @@ function abortAfter(ms){if(typeof AbortSignal!=='undefined'&&AbortSignal.timeout
 function node(tag,text,cls){let n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n}
 function button(text,fn,cls){let b=node('button',text,cls);b.onclick=()=>Promise.resolve().then(fn).catch(e=>message(e.message));return b}
 function photo(name){let i=node('img');i.src='/images/'+encodeURIComponent(name);i.loading='lazy';return i}
-function locationText(x){return x?.source==='manual_checkpoint'?'人工检查点 '+x.checkpoint:'位置未确认'}
-async function enter(){ $('#login').classList.add('hidden');$('#workspace').classList.remove('hidden');try{await updateStatus()}catch(e){message('状态刷新失败：'+e.message)}}
-$('#loginForm').onsubmit=async e=>{e.preventDefault();try{let f=new FormData(e.target);let d=await api('/api/login','POST',Object.fromEntries(f));csrf=d.csrf;$('#message').style.display='none';await enter()}catch(e){message(e.message)}};
+function locationText(x){return x&&x.source==='manual_checkpoint'?'人工检查点 '+x.checkpoint:'位置未确认'}
+async function enter(){$('#login').classList.add('hidden');$('#workspace').classList.remove('hidden');message('已进入工作台');updateStatus().catch(e=>message('状态刷新失败：'+e.message));preview().catch(()=>{})}
+$('#loginForm').onsubmit=async e=>{e.preventDefault();let btn=e.target.querySelector('button');if(btn){btn.disabled=true;btn.textContent='登录中…'}try{let f=new FormData(e.target);let d=await api('/api/login','POST',Object.fromEntries(f));csrf=d.csrf;$('#message').style.display='none';await enter()}catch(err){message(err.message||String(err));if(btn){btn.disabled=false;btn.textContent='进入工作台'}}};
 async function stop(){heldKeys.clear();lease=null;try{await api('/api/robot/control/stop','POST',{})}catch(e){message('停止请求未获确认；依赖车端心跳停车，请现场确认：'+e.message)}}
 $('#logout').onclick=async()=>{await stop();await api('/api/logout','POST',{});location.reload()};
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{if(activeTab==='dashboard')await stop();activeTab=b.dataset.tab;['dashboard','events','tasks'].forEach(id=>$('#'+id).classList.toggle('hidden',id!==activeTab));if(activeTab==='events')loadEvents();if(activeTab==='tasks')loadTasks()});
