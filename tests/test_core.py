@@ -21,7 +21,7 @@ class Tests(unittest.TestCase):
         g=Guard(cfg,lambda:t[0]);g.transport_ok=True
         g.ranges[0]=dict(at=t[0],valid=True,distance=2.0)
         lease=g.enable();g.command(dict(lease=lease,seq=0,duty=1,steering=99999))
-        self.assertEqual(g.output(),(HARD_MAX_DUTY,1620))
+        self.assertEqual(g.output(),(HARD_MAX_DUTY,1800))
         with self.assertRaises(ValueError):g.command(dict(lease=lease,seq=0,duty=.03,steering=0))
         t[0]+=.501;self.assertEqual(g.output()[0],0);self.assertFalse(g.enabled)
         with self.assertRaises(ValueError):g.command(dict(lease=lease,seq=1,duty=.03,steering=0))

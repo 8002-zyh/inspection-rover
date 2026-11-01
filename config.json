@@ -10,9 +10,9 @@
   "green_fraction": 0.15,
   "dedup_seconds": 20,
   "heartbeat_timeout": 0.5,
-  "max_duty": 0.07,
+  "max_duty": 0.15,
   "steering_center": 1500,
-  "steering_limit": 120,
+  "steering_limit": 300,
   "serial_port": "/dev/ttyTHS0",
   "serial_baud": 115200,
   "range_port": "/dev/ttyACM0",
@@ -23,5 +23,8 @@
   "delete_uploaded_images": false,
   "robot_bind_host": "127.0.0.1",
   "server_bind_host": "127.0.0.1",
-  "categories": {"bottle": "litter_bottle", "cup": "litter_cup"}
+  "categories": {
+    "bottle": "litter_bottle",
+    "cup": "litter_cup"
+  }
 }
