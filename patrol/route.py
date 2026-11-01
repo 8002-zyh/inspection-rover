@@ -1,13 +1,15 @@
 """Route file schema, library, and record/playback controller (no serial I/O)."""
 import json
+import math
 import re
+import secrets
 import threading
 import time
 import uuid
 from pathlib import Path
 
 from .common import now
-from .control import HARD_MAX_DUTY
+from .control import HARD_MAX_DUTY, HARD_MAX_REVERSE_DUTY
 
 SCHEMA = 'patrol.route.v1'
 _ID_RE = re.compile(r'^[a-zA-Z0-9_-]{2,64}$')
@@ -39,10 +41,12 @@ def validate_route(doc):
             steering = float(sample['steering'])
         except (KeyError, TypeError, ValueError) as e:
             raise ValueError('样本 #%d 字段错误' % i) from e
-        if t < last_t:
+        if not all(math.isfinite(v) for v in (t, duty, steering)):
+            raise ValueError('样本 #%d 必须为有限数值' % i)
+        if t < 0 or t < last_t:
             raise ValueError('样本时间必须单调非降')
-        if duty < 0 or duty > HARD_MAX_DUTY:
-            raise ValueError('样本 #%d duty 非法（禁止倒车且≤%.2f）' % (i, HARD_MAX_DUTY))
+        if duty < -HARD_MAX_REVERSE_DUTY or duty > HARD_MAX_DUTY:
+            raise ValueError('样本 #%d duty 超限（倒车≤%.2f，前进≤%.2f）' % (i, HARD_MAX_REVERSE_DUTY, HARD_MAX_DUTY))
         last_t = t
     return doc
 
@@ -106,12 +110,15 @@ class RouteController:
         self._record_started = None
         self._play_thread = None
         self._stop = threading.Event()
+        self._watch_token = None
+        self._last_watch = 0
 
     def status(self):
         with self.lock:
             return dict(mode=self.mode, route_id=self.route_id, error=self.error,
                         sample_count=len(self._samples), dry_run=self.dry_run,
                         hardware_enabled=bool(self.guard.cfg.get('hardware_enabled')),
+                        monitor_required=self.mode=='playing' and not self.dry_run,
                         routes=self.library.list())
 
     def _require_idle(self):
@@ -139,8 +146,11 @@ class RouteController:
             if self.mode != 'recording' or self._record_started is None:
                 return
             t = max(0.0, self.clock() - self._record_started)
-            duty = max(0.0, min(HARD_MAX_DUTY, float(duty)))
-            self._samples.append(dict(t=round(t, 3), duty=duty, steering=float(steering)))
+            duty, steering = float(duty), float(steering)
+            if not all(math.isfinite(v) for v in (t, duty, steering)):
+                raise ValueError('录制指令必须为有限数值')
+            duty = max(-HARD_MAX_REVERSE_DUTY, min(HARD_MAX_DUTY, duty))
+            self._samples.append(dict(t=round(t, 3), duty=duty, steering=steering))
 
     def stop_record(self):
         with self.lock:
@@ -173,13 +183,25 @@ class RouteController:
                 if self.guard.enabled:
                     raise ValueError('已有手动控制会话，请先停止')
             self._stop.clear()
+            self._watch_token = secrets.token_hex(16) if not self.dry_run else None
+            self._last_watch = self.clock()
             self.mode = 'playing'
             self.route_id = doc['id']
             self.error = ''
             target = self._run_play_dry if self.dry_run else self._run_play
             self._play_thread = threading.Thread(target=target, args=(doc,), daemon=True)
             self._play_thread.start()
-            return dict(mode=self.mode, route_id=self.route_id, dry_run=self.dry_run)
+            return dict(mode=self.mode, route_id=self.route_id, dry_run=self.dry_run,
+                        watch_token=self._watch_token)
+
+    def watch(self, token):
+        with self.lock:
+            if self.mode != 'playing':
+                return dict(active=False)
+            if not isinstance(token, str) or not self._watch_token or not secrets.compare_digest(token,self._watch_token):
+                raise ValueError('路线监护会话失效')
+            self._last_watch = self.clock()
+            return dict(active=True)
 
     def _run_play(self, doc):
         lease = None
@@ -193,6 +215,9 @@ class RouteController:
             i = 0
             last_duty, last_steering = 0.0, 0.0
             while not self._stop.is_set() and i < len(samples):
+                with self.lock:
+                    if self.clock()-self._last_watch > self.guard.cfg['heartbeat_timeout']:
+                        raise ValueError('路线监护连接超时')
                 elapsed = self.clock() - t0
                 advanced = False
                 while i < len(samples) and samples[i]['t'] <= elapsed:
@@ -221,6 +246,7 @@ class RouteController:
                 self.mode = 'idle'
                 self.dry_run = False
                 self._play_thread = None
+                self._watch_token = None
 
     def _run_play_dry(self, doc):
         try:

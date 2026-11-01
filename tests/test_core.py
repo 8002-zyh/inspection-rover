@@ -1,6 +1,7 @@
 import io
 import json
 import tempfile
+import threading
 import unittest
 from PIL import Image
 from werkzeug.security import generate_password_hash
@@ -39,7 +40,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(packet(0.0,1500),b'\xff\x00\x00\x00\xdc\x05\x00\x00\xfe')
 
     def test_obstacle_rejects_before_output_and_requires_reenable(self):
-        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0)
+        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,stop_distance_m=.5)
         t=[10.0];g=Guard(cfg,lambda:t[0]);g.transport_ok=True
         for distance in (0.4,0.5,float('nan'),None):
             g.ranges[0]=dict(at=t[0],valid=True,distance=distance)
@@ -145,7 +146,7 @@ class Tests(unittest.TestCase):
     def test_heartbeat_http_400(self):
         from patrol.robot import make_app
         g,t=self._guard()
-        robot=mock.Mock();robot.guard=g;robot.secrets={'device_token':'tok'}
+        robot=mock.Mock();robot.guard=g;robot.secrets={'device_token':'tok'};robot.operator_lock=threading.RLock()
         c=make_app(robot).test_client()
         r=c.post('/control/heartbeat',json={'seq':0},headers={'X-Device-Token':'tok'})
         self.assertEqual(r.status_code,400);self.assertFalse(g.enabled)
@@ -330,7 +331,7 @@ class Tests(unittest.TestCase):
     def test_lights_http(self):
         from patrol.robot import make_app
         g,_=self._guard()
-        robot=mock.Mock();robot.guard=g;robot.secrets={'device_token':'tok'};robot.cfg=g.cfg;robot.routes=mock.Mock(mode='idle')
+        robot=mock.Mock();robot.guard=g;robot.secrets={'device_token':'tok'};robot.cfg=g.cfg;robot.routes=mock.Mock(mode='idle');robot.operator_lock=threading.RLock()
         c=make_app(robot).test_client()
         r=c.post('/control/lights',json={'headlight':True},headers={'X-Device-Token':'tok'})
         self.assertEqual(r.status_code,200)

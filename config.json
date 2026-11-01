@@ -1,7 +1,7 @@
 {
   "device_id": "rtrc4pro-01",
-  "robot_url": "http://10.155.221.243:8766",
-  "server_url": "http://10.155.221.66:8765",
+  "robot_url": "http://127.0.0.1:8766",
+  "server_url": "http://127.0.0.1:8765",
   "capture_interval": 1.0,
   "max_queue_bytes": 2147483648,
   "model_path": "models/yolov8n.pt",
@@ -18,11 +18,13 @@
   "range_port": "/dev/ttyACM0",
   "range_baud": 921600,
   "front_sensor_id": 0,
-  "stop_distance_m": 0.5,
+  "front_no_target_policy": "allow_supervised",
+  "stop_distance_m": 0.25,
+  "obstacle_event_distance_m": 0.8,
   "hardware_enabled": false,
   "delete_uploaded_images": false,
-  "robot_bind_host": "127.0.0.1",
-  "server_bind_host": "127.0.0.1",
+  "robot_bind_host": "0.0.0.0",
+  "server_bind_host": "0.0.0.0",
   "categories": {
     "bottle": "litter_bottle",
     "cup": "litter_cup"

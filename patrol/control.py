@@ -4,6 +4,7 @@ import logging
 import secrets
 import threading
 import time
+from datetime import datetime, timezone
 
 HARD_MAX_DUTY = 0.15  # Absolute forward limit; config/env cannot raise it.
 HARD_MAX_REVERSE_DUTY = 0.08  # Temporary supervised reverse; no rear ranging.
@@ -26,6 +27,7 @@ class Guard:
         self.duty = 0.0
         self.steering = cfg['steering_center']
         self.reason = '启动后未使能'
+        self.last_stop = None
         self.transport_ok = False
         self.feedback_rpm = None
         self.feedback_at = None
@@ -38,6 +40,17 @@ class Guard:
 
     def stop(self, reason='操作员停止'):
         with self.lock:
+            if self.enabled:
+                sid = self.cfg.get('front_sensor_id')
+                reading = self.ranges.get(sid) if sid is not None else None
+                evidence = None
+                if reading:
+                    evidence = {k: v for k, v in reading.items() if k != 'at'}
+                    evidence['age_seconds'] = max(0, self.clock()-reading['at'])
+                self.last_stop = dict(stopped_at=datetime.now(timezone.utc).isoformat(),
+                                      reason=reason, front_sensor_id=sid,
+                                      threshold_m=self.cfg.get('stop_distance_m'), front=evidence)
+                logging.info('Control stopped: %s', self.last_stop)
             self.enabled = False
             self.lease = None
             self.duty = 0.0
@@ -61,7 +74,7 @@ class Guard:
         with self.lock:
             self.output()
             if not self.enabled or data.get('lease') != self.lease:
-                raise ValueError('控制会话失效，请重新使能')
+                raise ValueError('控制已停止：' + (self.reason or '控制会话失效') + '，请重新使能')
             try:
                 seq = int(data['seq'])
                 duty, steer = float(data['duty']), float(data['steering'])
@@ -88,7 +101,15 @@ class Guard:
             sid = self.cfg.get('front_sensor_id')
             if self.enabled and self.duty > 0 and sid is not None:
                 reading = self.ranges.get(int(sid))
-                if not reading or self.clock() - reading['at'] > 0.5 or not reading['valid']:
+                no_target_allowed = bool(reading and self.cfg.get('front_no_target_policy') == 'allow_supervised'
+                                         and reading.get('frame_ok') is True
+                                         and (reading.get('sensor_status') == 255
+                                              or (reading.get('sensor_status') == 0 and reading.get('strength') == 0)))
+                if not reading or self.clock() - reading['at'] > 0.5:
+                    self.stop('前方测距失效')
+                elif no_target_allowed:
+                    pass  # Explicit supervised policy; not a valid distance or safety proof.
+                elif not reading['valid']:
                     self.stop('前方测距失效')
                 elif not isinstance(reading.get('distance'), (int, float)) or not math.isfinite(reading['distance']) or reading['distance'] <= 0:
                     self.stop('前方测距失效')
@@ -118,6 +139,8 @@ class Guard:
                         feedback_rpm=self.feedback_rpm if age is not None and age < 0.5 else None,
                         feedback_age_seconds=age, driver_error=self.driver_error, reason=self.reason, duty=duty,
                         steering=steering, mode='manual', obstacle_protection=self.cfg.get('front_sensor_id') is not None,
+                        front_no_target_policy=self.cfg.get('front_no_target_policy', 'stop'),
+                        last_stop=self.last_stop,
                         headlight=headlight, hazard=self.hazard, hazard_supported=self.hazard_supported)
 
 

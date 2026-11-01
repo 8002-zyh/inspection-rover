@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, session, render_template, send_from_d
 from werkzeug.security import check_password_hash
 from .store import Store
 from .common import configuration, credentials
+from .analysis import AnalysisService
 
 
 def create_app(cfg=None, secret=None, root=None):
@@ -20,8 +21,15 @@ def create_app(cfg=None, secret=None, root=None):
     app.config.update(MAX_CONTENT_LENGTH=12*1024*1024, SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Lax')
     app.store = store
+    app.analysis = AnalysisService(store)
     net = requests.Session()
     net.trust_env = False
+
+    @app.after_request
+    def avoid_stale_sessions(response):
+        if request.path == '/' or request.path.startswith('/api/') or request.path.startswith('/static/'):
+            response.headers['Cache-Control'] = 'no-store'
+        return response
 
     def login_required(fn):
         @wraps(fn)
@@ -80,7 +88,18 @@ def create_app(cfg=None, secret=None, root=None):
     @app.get('/api/events')
     @login_required
     def events():
-        return jsonify(store.events())
+        reviews=app.analysis.results()
+        return jsonify([dict(e,analysis=reviews.get(e['event_id'])) for e in store.events()])
+
+    @app.get('/api/analysis/status')
+    @login_required
+    def analysis_status():
+        return jsonify(app.analysis.status())
+
+    @app.post('/api/events/<eid>/analysis')
+    @login_required
+    def analyze_event(eid):
+        return jsonify(app.analysis.enqueue(eid)), 202
 
     @app.get('/images/<name>')
     @login_required
@@ -90,7 +109,8 @@ def create_app(cfg=None, secret=None, root=None):
     @app.get('/api/tasks')
     @login_required
     def tasks():
-        return jsonify(store.tasks())
+        reviews=app.analysis.results()
+        return jsonify([dict(t,analysis=reviews.get(t['event_id'])) for t in store.tasks()])
 
     @app.post('/api/tasks')
     @login_required
@@ -107,10 +127,11 @@ def create_app(cfg=None, secret=None, root=None):
     @app.route('/api/robot/<path:path>', methods=['GET', 'POST'])
     @login_required
     def robot(path):
-        allowed = {'status': 'GET', 'preview': 'GET', 'control/enable': 'POST', 'control/stop': 'POST',
+        allowed = {'status': 'GET', 'preview': 'GET', 'control/enable': 'POST', 'control/stop': 'POST', 'control/reconnect': 'POST',
                    'control/heartbeat': 'POST', 'control/lights': 'POST', 'checkpoint': 'POST', 'capture': 'POST', 'sampling': 'POST',
                    'routes': 'GET', 'routes/status': 'GET', 'routes/record/start': 'POST',
-                   'routes/record/stop': 'POST', 'routes/record/note': 'POST', 'routes/play': 'POST', 'routes/stop': 'POST'}
+                   'routes/record/stop': 'POST', 'routes/record/note': 'POST', 'routes/play': 'POST',
+                   'routes/watch': 'POST', 'routes/stop': 'POST'}
         if allowed.get(path) != request.method:
             return jsonify(error='未知接口'), 404
         try:
@@ -126,4 +147,6 @@ def create_app(cfg=None, secret=None, root=None):
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(create_app(), host=configuration().get('server_bind_host', '127.0.0.1'), port=8765, threads=12)
+    app=create_app()
+    app.analysis.start()
+    serve(app, host=configuration().get('server_bind_host', '127.0.0.1'), port=8765, threads=12)

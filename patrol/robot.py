@@ -13,7 +13,7 @@ from .common import configuration, credentials, now
 from .control import Guard, SerialDriver
 from .route import RouteController, RouteLibrary
 from .store import Store
-from .vision import Vision
+from .vision import Vision, proximity_finding
 
 
 class Robot:
@@ -43,6 +43,7 @@ class Robot:
         self.quit = threading.Event()
         self.workers = []
         self.lock = threading.Lock()
+        self.operator_lock = threading.RLock()
         self.capture_requested = False
         self.sampling = False
         self.range_error = '测距尚未启动'
@@ -54,6 +55,25 @@ class Robot:
                     checkpoint=self.checkpoint, valid=bool(self.checkpoint),
                     frame_id=None, x=None, y=None, yaw=None)
 
+    def reconnect_chassis(self):
+        with self.operator_lock:
+            if not self.cfg['hardware_enabled']:
+                raise ValueError('当前仅监测模式，不能开启硬件写入')
+            if self.guard.enabled or self.guard.duty!=0 or self.routes.mode!='idle':
+                raise ValueError('请先停车并结束路线，再重连底盘')
+            self.guard.stop('重连底盘')
+            self.driver.close()
+            if self.driver.thread and self.driver.thread.is_alive():
+                raise ValueError('旧串口线程尚未退出，请现场重启小车')
+            with self.guard.lock:
+                self.guard.transport_ok=False
+                self.guard.feedback_at=None
+                self.guard.feedback_rpm=None
+                self.guard.driver_error=''
+            self.driver=SerialDriver(self.guard)
+            self.driver.start()
+            return dict(started=True,enabled=False)
+
     def status(self):
         return dict(device_id=self.cfg['device_id'], session_id=self.session,
                     frame_at=self.frame_at, camera_error=self.error,
@@ -63,7 +83,8 @@ class Robot:
                     control=self.guard.status(), range_error=self.range_error,
                     ranges=self.range_records, sampling=self.sampling,
                     route=self.routes.status(),
-                    route_mode=self.routes.mode, autonomous_available=True)
+                    route_mode=self.routes.mode, route_replay_available=True,
+                    route_type='command_timeline', autonomous_available=False)
 
     def start(self):
         self.driver.start()
@@ -120,8 +141,10 @@ class Robot:
                 sid = self.cfg.get('front_sensor_id')
                 with self.guard.lock:
                     reading = self.guard.ranges.get(sid)
-                if reading and reading['valid'] and time.monotonic()-reading['at'] < 0.5 and reading['distance'] < self.cfg['stop_distance_m']:
-                    findings.append(dict(category='obstacle', confidence=None, distance_m=reading['distance'], method='测距'))
+                warning = proximity_finding(reading,
+                    self.cfg.get('obstacle_event_distance_m', self.cfg['stop_distance_m']), sid)
+                if warning:
+                    findings.append(warning)
                 for finding in findings:
                     event = self.vision.event(finding, location, self.session, captured)
                     if event and self.store.put(event, jpeg):
@@ -211,11 +234,17 @@ class Robot:
                     cmd = bytes([0x57, 0x10, 255, 255, sid, 255, 255])
                     port.write(cmd + bytes([sum(cmd)&255]))
                     data = port.read(16)
-                    valid = len(data)==16 and data[:2]==b'\x57\x00' and sum(data[:-1])&255==data[-1] and data[3]==sid
-                    distance = int.from_bytes(data[8:11], 'little')/1000 if valid else None
-                    strength = int.from_bytes(data[12:14], 'little') if valid else 0
-                    valid = bool(valid and strength > 0 and data[11]==0 and distance > 0)
-                    records[sid] = dict(distance=distance, strength=strength, valid=valid, captured_at=now())
+                    frame_ok = len(data)==16 and data[:2]==b'\x57\x00' and sum(data[:-1])&255==data[-1] and data[3]==sid
+                    sensor_status = data[11] if frame_ok else None
+                    distance = int.from_bytes(data[8:11], 'little', signed=False)/1000 if frame_ok else None
+                    strength = int.from_bytes(data[12:14], 'little') if frame_ok else 0
+                    valid = bool(frame_ok and strength > 0 and sensor_status==0 and distance > 0)
+                    if not valid:
+                        distance = None  # Do not present a retained/out-of-range distance as measured.
+                    state = ('measured' if valid else 'no_target' if frame_ok and sensor_status==255
+                             else 'no_echo' if frame_ok and sensor_status==0 and strength==0 else 'fault')
+                    records[sid] = dict(distance=distance, strength=strength, valid=valid,
+                                        frame_ok=frame_ok, sensor_status=sensor_status, state=state, captured_at=now())
                     with self.guard.lock:
                         self.guard.ranges[sid] = dict(records[sid], at=time.monotonic())
                 self.range_records = records
@@ -260,6 +289,10 @@ def make_app(robot):
 
     @app.post('/control/<action>')
     def control(action):
+        with robot.operator_lock:
+            return control_action(action)
+
+    def control_action(action):
         data = request.get_json(silent=True) or {}
         if action == 'stop':
             if robot.routes.mode != 'idle':
@@ -268,6 +301,8 @@ def make_app(robot):
                 robot.guard.stop()
         elif action == 'enable':
             return jsonify(lease=robot.guard.enable())
+        elif action == 'reconnect':
+            return jsonify(robot.reconnect_chassis())
         elif action == 'heartbeat':
             robot.guard.command(data)
             robot.routes.note_command(robot.guard.duty, robot.guard.steering - robot.cfg['steering_center'])
@@ -335,7 +370,12 @@ def make_app(robot):
         rid = (request.get_json(silent=True) or {}).get('route_id')
         if not rid:
             raise ValueError('缺少 route_id')
-        return jsonify(robot.routes.play(rid))
+        with robot.operator_lock:
+            return jsonify(robot.routes.play(rid))
+
+    @app.post('/routes/watch')
+    def routes_watch():
+        return jsonify(robot.routes.watch((request.get_json(silent=True) or {}).get('watch_token')))
 
     @app.post('/routes/stop')
     def routes_stop():

@@ -1,3 +1,98 @@
+# 2026-11-01 晚间：T-406云识图、手机闭环与恢复验收
+
+## 21:30 手机独立操作（最新）
+- 用户明确：室外只有小车和Android有热点信号，电脑将离线，要求手机独立操作。两服务原本就在车上；现已补全手机自助恢复与操作卡，operator仍使用原账号，不新增root权限。
+- T-412：路线增加独立监护token及`POST /routes/watch`，前端100ms续监护；车端超过原heartbeat_timeout=.5s未收到监护则中止，不再仅靠内部续Guard心跳继续。切后台/离页主动停止。令牌不暴露在status，不入证据日志。CLI旧回放客户端必须续watch；verify_short_playback.py已适配。
+- 车端零动力自检：无监护约.584秒观测到中止，持续监护2.107秒正常结束，所有duty/RPM为0；不是运动刹停或实际热点断网试验。实际工作台按钮回放同一零动力路线也正常结束，页面显示路线回放结束。证据runtime/evidence/phone-mode-20261101.json。
+- 手机新增“重连底盘”：只在未使能、duty0、路线idle时允许；控制/回放与重连共用互斥锁。旧串口线程不退出则拒绝第二实例。不改变模式或自动使能。一次真实Write timeout后请求重连未恢复RX，整车重上电恢复；因此该按钮不是所有串口故障的保证修复，失败需整车重启。
+- 已用orin自己的crontab安装单个@reboot块，保留原任务，备份放.local-access。入口start_at_boot.sh等待日期有效后运行start_car_workbench.sh --hardware；不会自动使能或恢复路线。安装/移除：python3 scripts/install_boot_start.py [--remove]。
+- 用户真实整车重上电，boot_id从77412655-49ee-4b2b-aae0-dd4c9d2a28d7变为f9167898-d805-47cb-8902-9f424698e885，uptime不足1分钟时工作台已由cron启动，robot2984/server3625（PID会变）；随后零动力API和实际网页自检均通过。首次换电池启动曾回1970，NTP自动恢复，启动脚本现有无效年份检查。
+- 任务A/B/C现均closed；C手机断电前没提交成功，重启后重新接单/上传，状态review后核对照片纸箱已移走，再由Codex复核关闭。说明实际保存为“OK”；B实际为“完成”。不伪造为建议的长说明，不将B正常保温杯核查计作垃圾识别成功。全部是室内晚间白光测试，户外待用户现场测试。
+- 53项Python+Node客户端测试通过。页面顶部“手机独立测试操作卡”可展开，包含自启、重连、控车、录放、检查点、AI、任务；用户现场自行操作，不再需要Codex远程逐次授权。电脑离线无影响；手机掉线仍需停车。
+- T-409已部署：obstacle_event_distance_m=.8，仅用于留证；stop_distance_m=.25不变。纸箱.329m有效测距自动产生C点obstacle事件并上传；距离以传感器为参考。补非有限/失效/过期过滤，控制Guard未改。API明确autonomous_available=false、route_type=command_timeline。
+- T-411离线验收包导出脚本scripts/export_evidence.py（只读库、任务照片哈希、HTML转义、不复制私密配置）；已导出runtime/delivery-20261101-indoor，3条closed、6张前后照片、9份测试报告，图片哈希与密钥扫描通过，中文HTML真实浏览器渲染已核验。完整户外夜巡、三种地面、10–20m路径/定位精度、运动中断线刹停、最终录像仍未完成。目标保持active。
+- 21:46只读检查仍未发现新增户外事件或任务；用户答复将进行室外测试并使用手机录屏。保持现场由用户操作，后续只读拉取结果，不远程重启、停止或使能打断测试。
+
+## 20:13 T-403室内地面短脉冲录放
+- 用户更正：实际仍在室内（不是户外），确认至少1m净空、车旁监护；新录route-f7dfff72cf，前进0.07/0.35秒、停、倒车-0.08/0.35秒、停，约2秒直线时间轴，无转向，无定位纠偏。
+- 显式单次回放同一新路线，观测duty -0.08/0/0.07与RPM -19/-7/0/5/17，route_error空，终点reason=路线回放结束、enabled=false、duty0、新鲜RPM0。用户回答“两轮动作都正常，结束已停车”。不是长路线精度或三次重复验收。
+- 证据runtime/evidence/short-route-record-20261101-201139.json、short-route-play-20261101-201305.json；测试脚本scripts/verify_short_route.py、verify_short_playback.py只用于当次确认的净空/监护场景，不得无人盲跑。
+- 用户已摆好杯子，接下来停车采样、AI和第二条手机任务。户外夜巡仍未验。
+
+- 本段优先于下方历史。工作目录tmp/ir-push，分支feat/T-WX-LOGIN，基线dbdc0dd；本轮改动尚未提交/推送。
+- 官方DeepSeek deepseek-flash视觉已接入：`patrol/analysis.py`、server API、事件/任务页面。人工选图，异步持久化，依据/建议/限制可见；不控制车辆。私密配置`.local-access/vision-api.json`，不在仓库。
+- 现场19:33:59检查点A任务`f658df61d9a54bf29eb13e1063f35d65`，Android用户上传处理后照片、说明“解决了”，数据库与页面均closed；是室内白光夜间受控样张，不代表户外林地识别精度。AI正确给出uncertain。
+- T-407后台停止300.3秒：20张样本持久保存，robot重启后队列保留，后台恢复全部补传，无缺图、无重复ID，重复上传created=false。证据`runtime/evidence/backend-outage-20261101.json`。不是实际热点中断。
+- T-406 AI恢复：独立诊断库中网络拒绝3次保留任务，每次由新进程重试；首次恢复云调用返回无效JSON，人工再次重试成功、图片哈希相同。生产任务没被改写。脚本`scripts/verify_ai_recovery.py`。
+- T-408定位前置失败：MID360配置host192.168.1.50/lidar192.168.1.137；eth0 carrier0/NO-CARRIER、无host地址，传感器驱动短探测bind failed/SDK init failed，无点云。FAST-LIO与Livox编译产物存在、合并ROS overlay后无缺失库；不要启动含旧坐标/直接动力的厂家巡航脚本。未建图，无定位纠偏。
+- 45项Python测试与Node客户端测试通过。前进0.15、倒车0.08、转向±300、前方25cm、无回波监护策略不变；动态停车距离仍未验收。
+- 新操作卡`docs/演示操作卡.md`、识图说明`docs/云端识图.md`、总验收状态`docs/今晚验收记录.md`。启动脚本新增显式`--hardware`，默认仍只读；不覆盖当前速度/阈值，不自动使能/恢复路线。已部署并验证硬件模式服务重启：零duty/新鲜RPM0/未使能，预览200、待上传0、关闭任务和AI结果保留；不是整车断电冷启动。备份backups/start-workbench-before-20261101.sh。
+- 用户已表示今晚可去室外平整路面、有白光且可车旁监护。待确认车已在起点，再录新场地短路线与采集真实户外夜间样张。三种地面、实际热点断开、定位路线、最终录像/冷启动仍未完成。
+
+# 2026-11-01 用户要求AEB阈值25cm
+
+## 停车原因与当前测距分离（2026-11-01）
+- 用户见车遇障减速但显示测距失效。静态检查0号连续有效.410–.411m、状态0/强度38，控制仍保留历史reason=前方测距失效；旧版没有触发时帧，不能追溯当时具体原因。代码是归零停车，无渐进减速控制。
+- Guard增加last_stop：启用到停车时快照时间/原因/前方ID/阈值/当时距离、状态码、强度、数据年龄。恢复读数或后续操作员stop不覆盖证据；UI分开展示“上次停止原因”和当前测距，未改保护条件。
+- 39项Python+Node客户端测试通过，已部署；备份backups/stop-evidence-before-20261101.tar.gz。不自动发车；下次发生时读last_stop即可判断过期/坏帧/异常状态。
+
+## 无回波监护策略补充
+- 用户手机持续报“连接失效”，实测并非网络断开：0号frame_ok=true、status0/strength0连续出现，原255-only策略仍会触发测距失效。
+- 按用户先前明确要求无回波放行，allow_supervised扩展为：fresh<.5s+frame_ok+(status255或status0/strength0)。这些仍valid=false、distance=null、state=no_target/no_echo，不能宣称前方安全。status7/坏帧/过期及有效近障仍停车。
+- 心跳成功响应若enabled=false，页面立即显示reason并清除本地lease；后续会话错误携带实际停车原因，不再把保护锁定泛称网络断开。
+- 37项Python+Node测试通过，已部署；车端连续确认串口正常、state=no_echo、策略allow_supervised。未自动发送非零运动，待用户手机复验。
+- 备份backups/no-echo-before-20261101.tar.gz。当前是用户选择的监护模式，非fail-safe AEB，应在后续场地/产品验收报告明确此限制。
+
+## 同日用户要求无回波允许行驶
+- 用户要求“无回波视作前方安全”。实际实现更精确的front_no_target_policy=allow_supervised：仅校验正常、对应ID、新鲜<.5秒且dis_status=255（厂家定义未检测到目标）可监护放行，不把无回波标作有效距离或安全保证。
+- dis_status=7为相位不匹配，其他故障/strength0且status0、超时、坏帧依旧停车；近于25cm依旧停车。参考厂家 https://support.nooploop.com/cn/tofsense/FAQ-for-tOfsense/ 。
+- 增加range字段frame_ok/sensor_status/state；无效距离设null，不显示残留7m值；页面提示当前策略。35项Python+Node测试通过，已部署。
+- 部署备份backups/no-target-before-20261101.tar.gz。重启一度复现底盘Write timeout，正在静态恢复；未发送运动。不要声称所有no echo均可放行（status0弱信号或7仍故障）。
+
+- 静态近障通过后用户报告手机“前方测距失效”。停止状态抽样发现0号valid频繁false、距离约2.36/7.0m跳动。
+- 已在停止车端后独立采30条原始0号帧：30条header/ID/checksum均正常；strength多次0、status多次255，偶有status7/strength1；开头偶有status0/strength1。厂家示例明确strength0为超出检测范围的无效值；不能把7m残值当作通路。
+- 诊断脚本finally重新启动robot，PID14066（会变），配置仍前方0/25cm，硬件true但未使能；未发运动指令。此问题是有效测距缺失，不能简单延长过期阈值/把无回波视为远处来放行。
+- 下一步要求用户静态放纸板约50cm，再观测有效回波是否恢复；若恢复，评估无遮挡/远目标时探测覆盖与量程约束，尚不可称AEB实用验收完成。
+
+- 25cm静态拦截随后实测通过：第一次距离漂到.251–.252m，脚本按前提条件拒绝发送；用户再次移近并确认后，bench_obstacle25.py确认配置ID0/阈值.25、距离有效且小于阈值，再请求duty=.03；响应立即duty=0/enabled=false/reason=前方障碍停车，随后新鲜轮速0，无driver_error，最后显式停止。
+- 该证据仅为静止状态拒绝前进，不等于动态刹停测试通过；仍需实际低速接近障碍的制动距离、移除障碍不自动恢复、测距失效实测。
+
+- 用户明确要求将50cm缩为25cm；车端与工作仓库config.json已改stop_distance_m=.25，前向ID保持0。备份backups/config-before-aeb25-*.json。
+- 控制进程重启，未发运动，默认会话锁定。此前44cm/50cm静态拦截证据不适用于证明25cm动态停车安全；需重新做近阈值静态和低速实际刹停验证。
+
+# 2026-11-01 T-404 AEB静态拦截已测
+
+- 用户车头纸板约40cm，0号5次读数0.441–0.442m有效，全程未使能/零duty。
+- 备份车端配置后，将front_sensor_id=null改0，stop_distance_m=.25改.5（保守静态试验阈值，非制动距离标定），硬件写入保持true；配置备份backups/config-before-aeb-*.json。
+- bench_obstacle.py校验前方有效距离<.5和保护已配置，再请求duty=.03；同一command锁内拦截，响应duty=0/enabled=false/reason=前方障碍停车，随后新鲜轮速反馈0，无串口错误。末尾显式停止。
+- 当前AEB已接入0号、阈值.5m，用户重新使能后操作。未做动态接近障碍刹停、全宽覆盖或断测实测，禁止标T-404全部完成。
+- 下一步移开纸板观察距离回升，再验证解除障碍不会自动恢复行驶；空间/停车距离未标定之前不做朝纸板自动冲近测试。
+
+# 2026-11-01 新路线现场回放后检查
+
+- 用户重新录制并回放route-eec947a236（现场录制），54.689秒/474样本，其中136条负duty，最小-0.08，最后指令0。
+- 用户回复“没问题下一步”；检查车端mode=idle、reason=路线回放结束、enabled=false、duty=0、新鲜feedback_rpm=0、driver_error为空。支持本次回放结束停车记录，不代表路径重复精度或AEB通过。
+- 下一步前向AEB：车端obstacle_protection=false，现有配置front_sensor_id=null、stop_distance_m=0.25。先静态纸板重新核对当前前方读数，再决定接入；不直接用未标定距离开展动态障碍测试。
+
+# 2026-11-01 R-009 倒车路线修复（本地未推送）
+
+- 用户现场回放报告倒车丢失，明确要求录放支持倒车。定位到RouteController.note_command将负duty裁为0、validate_route拒绝负duty。
+- 现保存负duty，复用HARD_MAX_REVERSE_DUTY=0.08限制；回放已有Guard限幅不变。补非有限数值检查。
+- 本地32项Python+Node请求/脚本测试通过；车端9项路线测试通过（均不连接串口驱动车辆）。新增保存/重载/Guard回放负向指令回归测试。
+- patrol/route.py备份车端backups/route-before-reverse-20261101.py，已部署修复，重启保留hardware_enabled=true配置，由用户手机重新使能。未自行执行实车倒车回放。
+- 用户此前录制route-57018d5990总44.588秒/403样本，倒车已被旧版裁为0，不能补推测数据。必须重新录制后验收前进/倒车/转向及终点停止。
+- 此前双闪UI按钮和相关空节点引用已删除，大灯保留。旧交接“路线禁负duty”已被此项取代。
+
+# 2026-11-01 Codex T-WX-LOGIN修复（本地未推送）
+
+- 基于GitHub tip dbdc0dd，工作分支feat/T-WX-LOGIN。旧交接的“多数提交未push”已由用户确认的推送取代；旧hash按提交标题对应。
+- 在原tip页面上用Node解析复现 `SyntaxError: Unexpected token ')'`：updateStatus的灯光textContent赋值多了一个右括号，导致整个inline script不执行，登录无法提交。现已修正。
+- 增加patrol/static/http.js：超时涵盖fetch和响应正文，即便没有AbortController仍可返回超时错误；显式same-origin Cookie；登录后验证/api/session，按钮finally恢复；初始会话请求不覆盖新登录；状态和预览单飞避免请求堆积；HTML/API/脚本no-store。
+- 本地30项Python测试通过，`node tests/test_http_client.cjs`通过（真实inline语法、无AbortController、正文卡住、错误和恢复）。尚未替代Android各浏览器现场验收。
+- 车端原server.py/index.html已备份到backups/login-before-20261101.tar.gz，新文件已部署。以现有start_car_workbench.sh启动，hardware_enabled=false；未发送运动或灯光命令。
+- 最新车IP10.71.225.243，工作台http://10.71.225.243:8765/。真实GET首页/脚本/会话/状态/预览均200，预览有图片；使用签名会话做只读链路检查，真实用户登录尚待现场复验。
+- 回滚：静态停止工作台服务后恢复上述备份的两个文件，新static/http.js可保留，不改凭据。下一步用户浏览器强刷并登录，确认可进和错误密码可重试，再进入T-403；运动需现场确认。
+
 # 当前交接：2026-11-01 17:21 CST — Codex 接手（软件控车已通）
 
 - 分支：`feat/patrol-prototype`；本地 tip 见下方 commits。**多数提交未 push**；勿擅自 push/merge/开 PR。
