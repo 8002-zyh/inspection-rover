@@ -6,6 +6,7 @@ import threading
 import time
 
 HARD_MAX_DUTY = 0.15  # Absolute forward limit; config/env cannot raise it.
+HARD_MAX_REVERSE_DUTY = 0.08  # Temporary supervised reverse; no rear ranging.
 FEEDBACK_FRAMES_REQUIRED = 3  # Vendor 14-byte feedback has no checksum.
 # Vendor Orin chassis (ROSPY_Orin_chasis_control): rates below ~400Hz make motor/servo
 # abnormal; their node uses rospy.Rate(500). Keep non-blocking RX (timeout=0) so a
@@ -68,8 +69,10 @@ class Guard:
                 self.stop('无效控制数据')
                 raise ValueError('控制值必须有限')
             self.seq, self.last = seq, self.clock()
-            limit_duty = min(float(self.cfg['max_duty']), HARD_MAX_DUTY)
-            self.duty = max(0.0, min(limit_duty, duty))  # No reverse: no rear range sensor.
+            fwd_limit = min(float(self.cfg['max_duty']), HARD_MAX_DUTY)
+            rev_limit = min(float(self.cfg['max_duty']), HARD_MAX_REVERSE_DUTY)
+            # Reverse is temporary + supervised: no rear ranging on this chassis.
+            self.duty = max(-rev_limit, min(fwd_limit, duty))
             limit = self.cfg['steering_limit']
             self.steering = int(self.cfg['steering_center'] + max(-limit, min(limit, steer)))
             self.output()  # Apply obstacle guard before releasing the command lock.

@@ -6,7 +6,7 @@ from PIL import Image
 from werkzeug.security import generate_password_hash
 from patrol.common import configuration
 from unittest import mock
-from patrol.control import Guard, SerialDriver, packet, feedback_sane, HARD_MAX_DUTY, CHASSIS_LOOP_HZ, CHASSIS_LOOP_PERIOD
+from patrol.control import Guard, SerialDriver, packet, feedback_sane, HARD_MAX_DUTY, HARD_MAX_REVERSE_DUTY, CHASSIS_LOOP_HZ, CHASSIS_LOOP_PERIOD
 from patrol.server import create_app
 from patrol.store import Store
 
@@ -120,9 +120,13 @@ class Tests(unittest.TestCase):
         g=Guard(cfg,lambda:t[0]);g.transport_ok=True;g.ranges[0]=dict(at=t[0],valid=True,distance=2.0)
         return g,t
 
-    def test_negative_duty_clamped_to_zero(self):
-        g,t=self._guard();l=g.enable();g.command(dict(lease=l,seq=0,duty=-.03,steering=0))
-        self.assertEqual(g.output()[0],0.0)
+    def test_reverse_duty_allowed_within_hard_cap(self):
+        g,t=self._guard();l=g.enable();g.command(dict(lease=l,seq=0,duty=-.05,steering=0))
+        self.assertAlmostEqual(g.output()[0], -0.05)
+
+    def test_reverse_duty_clamped_to_hard_max(self):
+        g,t=self._guard();g.cfg['max_duty']=1;l=g.enable();g.command(dict(lease=l,seq=0,duty=-1,steering=0))
+        self.assertEqual(g.output()[0], -HARD_MAX_REVERSE_DUTY)
 
     def test_hard_max_duty_ignores_config(self):
         g,t=self._guard();g.cfg['max_duty']=1;l=g.enable();g.command(dict(lease=l,seq=0,duty=1,steering=0))

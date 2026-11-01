@@ -1,3 +1,11 @@
+# 当前交接：2026-11-01 — 临时倒车（监护）
+
+- 分支：feat/patrol-prototype；**仅本地提交，未 push**。
+- 用户批准：临时允许倒车；`HARD_MAX_REVERSE_DUTY=0.08`，前进仍 `HARD_MAX_DUTY=0.15`；无后向测距，须现场盯急停。
+- 工作台「按住后退」发 duty=-0.08；路线校验仍禁止负 duty（录制/回放不变）。
+- 测试：`python -m unittest discover -s tests -v` 须全绿。
+- 下一项：部署到车后监护试倒车；再录短路线（T-403）。
+
 # 当前交接：2026-10-31 21:48 CST — T-401 串口环 ~500Hz（待电池）
 
 - 分支：feat/patrol-prototype；**仅本地提交，未 push**。
