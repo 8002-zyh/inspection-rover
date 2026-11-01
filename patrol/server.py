@@ -89,7 +89,18 @@ def create_app(cfg=None, secret=None, root=None):
     @login_required
     def events():
         reviews=app.analysis.results()
-        return jsonify([dict(e,analysis=reviews.get(e['event_id'])) for e in store.events()])
+        return jsonify([dict(e,analysis=reviews.get(e['event_id']))
+                        for e in store.events(deleted=request.args.get('deleted') == '1')])
+
+    @app.post('/api/events/<eid>/delete')
+    @login_required
+    def event_delete(eid):
+        return jsonify(store.set_event_deleted(eid, True))
+
+    @app.post('/api/events/<eid>/restore')
+    @login_required
+    def event_restore(eid):
+        return jsonify(store.set_event_deleted(eid, False))
 
     @app.get('/api/analysis/status')
     @login_required
@@ -129,7 +140,8 @@ def create_app(cfg=None, secret=None, root=None):
     def robot(path):
         allowed = {'status': 'GET', 'preview': 'GET', 'control/enable': 'POST', 'control/stop': 'POST', 'control/reconnect': 'POST',
                    'control/heartbeat': 'POST', 'control/lights': 'POST', 'checkpoint': 'POST', 'capture': 'POST', 'sampling': 'POST',
-                   'routes': 'GET', 'routes/status': 'GET', 'routes/record/start': 'POST',
+                   'routes': 'GET', 'routes/status': 'GET', 'routes/trash': 'GET',
+                   'routes/delete': 'POST', 'routes/restore': 'POST', 'routes/record/start': 'POST',
                    'routes/record/stop': 'POST', 'routes/record/note': 'POST', 'routes/play': 'POST',
                    'routes/watch': 'POST', 'routes/stop': 'POST'}
         if allowed.get(path) != request.method:

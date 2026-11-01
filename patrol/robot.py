@@ -61,6 +61,11 @@ class Robot:
                 raise ValueError('当前仅监测模式，不能开启硬件写入')
             if self.guard.enabled or self.guard.duty!=0 or self.routes.mode!='idle':
                 raise ValueError('请先停车并结束路线，再重连底盘')
+            current=self.guard.status()
+            if current['transport_ok'] and not current['driver_error']:
+                # Closing a healthy UART caused observed feedback loss on this
+                # controller. A preflight click must preserve the live session.
+                return dict(started=False,enabled=False,connected=True,already_connected=True)
             self.guard.stop('重连底盘')
             self.driver.close()
             if self.driver.thread and self.driver.thread.is_alive():
@@ -337,6 +342,20 @@ def make_app(robot):
     @app.get('/routes')
     def routes_list():
         return jsonify(robot.routes.library.list())
+
+    @app.get('/routes/trash')
+    def routes_trash():
+        return jsonify(robot.routes.library.list(deleted=True))
+
+    @app.post('/routes/delete')
+    def routes_delete():
+        with robot.operator_lock:
+            return jsonify(robot.routes.set_deleted((request.get_json(silent=True) or {}).get('route_id'), True))
+
+    @app.post('/routes/restore')
+    def routes_restore():
+        with robot.operator_lock:
+            return jsonify(robot.routes.set_deleted((request.get_json(silent=True) or {}).get('route_id'), False))
 
     @app.get('/routes/status')
     def routes_status():

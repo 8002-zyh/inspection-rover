@@ -28,7 +28,7 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):g.command(dict(lease=lease,seq=1,duty=.03,steering=0))
 
     def test_invalid_and_sensor_stop(self):
-        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0)
+        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,front_range_failure_policy='stop')
         g=Guard(cfg);g.transport_ok=True;l=g.enable()
         g.command(dict(lease=l,seq=0,duty=.03,steering=0));self.assertEqual(g.output()[0],0)
         self.assertFalse(g.enabled)
@@ -40,7 +40,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(packet(0.0,1500),b'\xff\x00\x00\x00\xdc\x05\x00\x00\xfe')
 
     def test_obstacle_rejects_before_output_and_requires_reenable(self):
-        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,stop_distance_m=.5)
+        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,stop_distance_m=.5,front_range_failure_policy='stop')
         t=[10.0];g=Guard(cfg,lambda:t[0]);g.transport_ok=True
         for distance in (0.4,0.5,float('nan'),None):
             g.ranges[0]=dict(at=t[0],valid=True,distance=distance)
@@ -117,7 +117,7 @@ class Tests(unittest.TestCase):
             self.assertEqual(Store(root).tasks()[0]['state'],'closed')
 
     def _guard(self):
-        t=[10.0];cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0)
+        t=[10.0];cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,front_range_failure_policy='stop')
         g=Guard(cfg,lambda:t[0]);g.transport_ok=True;g.ranges[0]=dict(at=t[0],valid=True,distance=2.0)
         return g,t
 

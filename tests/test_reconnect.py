@@ -6,6 +6,23 @@ from patrol.robot import Robot,make_app
 
 
 class ReconnectTests(unittest.TestCase):
+    def test_healthy_reconnect_is_noop_preserving_uart_and_feedback(self):
+        with tempfile.TemporaryDirectory() as root:
+            cfg=configuration();cfg['hardware_enabled']=True
+            robot=Robot(cfg,{'device_token':'test'},root)
+            robot.driver=mock.Mock(thread=None)
+            robot.guard.transport_ok=True
+            robot.guard.feedback_at=robot.guard.clock()
+            robot.guard.feedback_rpm=0
+            before=robot.guard.feedback_at
+            with mock.patch('patrol.robot.SerialDriver') as factory:
+                result=robot.reconnect_chassis()
+                robot.driver.close.assert_not_called();factory.assert_not_called()
+                self.assertTrue(result['already_connected'])
+                self.assertTrue(result['connected']);self.assertFalse(result['started'])
+                self.assertEqual(robot.guard.feedback_at,before)
+                self.assertTrue(robot.guard.transport_ok);self.assertFalse(robot.guard.enabled)
+
     def test_reconnect_requires_idle_unarmed_and_never_enables(self):
         with tempfile.TemporaryDirectory() as root:
             cfg=configuration();cfg['hardware_enabled']=True

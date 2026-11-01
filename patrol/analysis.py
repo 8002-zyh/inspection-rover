@@ -117,6 +117,8 @@ class AnalysisService:
             row=c.execute('SELECT image FROM events WHERE id=?',(eid,)).fetchone()
             if not row or not (self.store.images/row['image']).is_file():
                 raise ValueError('事件或证据图片不存在')
+            if c.execute('SELECT event_id FROM event_trash WHERE event_id=?',(eid,)).fetchone():
+                raise ValueError('异常已删除，请先从回收站恢复')
             old=c.execute('SELECT state FROM analysis_jobs WHERE event_id=?',(eid,)).fetchone()
             if old and old['state'] in ('pending','running','succeeded'):
                 return dict(event_id=eid,state=old['state'])
@@ -132,7 +134,9 @@ class AnalysisService:
         if not self.enabled:return False
         with self.store.connect() as c:
             c.execute('BEGIN IMMEDIATE')
-            job=c.execute("SELECT * FROM analysis_jobs WHERE state='pending' AND next_at<=? ORDER BY updated LIMIT 1",(time.time(),)).fetchone()
+            job=c.execute("""SELECT * FROM analysis_jobs j WHERE state='pending' AND next_at<=?
+                AND NOT EXISTS(SELECT 1 FROM event_trash t WHERE t.event_id=j.event_id)
+                ORDER BY updated LIMIT 1""",(time.time(),)).fetchone()
             if not job:return False
             event=c.execute('SELECT image FROM events WHERE id=?',(job['event_id'],)).fetchone()
             c.execute("UPDATE analysis_jobs SET state='running',attempts=attempts+1,updated=? WHERE event_id=?",(now(),job['event_id']))

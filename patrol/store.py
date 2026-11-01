@@ -31,6 +31,8 @@ class Store:
                 result_image TEXT, created TEXT NOT NULL, updated TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS audit (
                 id INTEGER PRIMARY KEY, task_id TEXT, action TEXT, at TEXT);
+            CREATE TABLE IF NOT EXISTS event_trash (
+                event_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL);
             ''')
 
     @contextmanager
@@ -87,16 +89,34 @@ class Store:
                       (eid, encoded, name, digest, now()))
         return True
 
-    def events(self, pending=False):
+    def events(self, pending=False, deleted=False):
         with self.connect() as c:
-            rows = c.execute('SELECT * FROM events ' + ('WHERE uploaded=0 ' if pending else '') +
-                             'ORDER BY received ' + ('ASC' if pending else 'DESC') + ' LIMIT 200').fetchall()
+            # Upload queues must retain pending evidence even if a view hides it.
+            where = 'e.uploaded=0' if pending else ('t.event_id IS NOT NULL' if deleted else 't.event_id IS NULL')
+            rows = c.execute('SELECT e.*,t.deleted_at FROM events e LEFT JOIN event_trash t ON t.event_id=e.id WHERE '
+                             + where + ' ORDER BY e.received ' + ('ASC' if pending else 'DESC') + ' LIMIT 200').fetchall()
         result = []
         for r in rows:
             item = json.loads(r['payload'])
             item.update(image=r['image'], received_at=r['received'], uploaded=r['uploaded'] == 1)
+            if not pending:
+                item['deleted_at'] = r['deleted_at']
             result.append(item)
         return result
+
+    def set_event_deleted(self, eid, deleted):
+        with self.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            if not c.execute('SELECT id FROM events WHERE id=?', (eid,)).fetchone():
+                raise ValueError('异常不存在')
+            if deleted:
+                changed = c.execute('INSERT OR IGNORE INTO event_trash(event_id,deleted_at) VALUES(?,?)', (eid,now())).rowcount
+            else:
+                changed = c.execute('DELETE FROM event_trash WHERE event_id=?', (eid,)).rowcount
+            if changed:
+                c.execute('INSERT INTO audit(task_id,action,at) VALUES(NULL,?,?)',
+                          (('event_delete:' if deleted else 'event_restore:') + eid, now()))
+            return dict(event_id=eid, deleted=bool(deleted))
 
     def ack(self, eid):
         with self.connect() as c:
@@ -117,6 +137,8 @@ class Store:
             c.execute('BEGIN IMMEDIATE')
             if not c.execute('SELECT id FROM events WHERE id=?', (eid,)).fetchone():
                 raise ValueError('异常不存在')
+            if c.execute('SELECT event_id FROM event_trash WHERE event_id=?', (eid,)).fetchone():
+                raise ValueError('异常已删除，请先从回收站恢复')
             old = c.execute('SELECT id FROM tasks WHERE event_id=?', (eid,)).fetchone()
             if old:
                 return old['id']

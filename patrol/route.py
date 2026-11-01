@@ -55,38 +55,58 @@ class RouteLibrary:
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.lock = threading.RLock()
 
     def path_for(self, route_id):
-        if not _ID_RE.fullmatch(route_id):
+        if not isinstance(route_id, str) or not _ID_RE.fullmatch(route_id):
             raise ValueError('无效路线 ID')
         return self.root / (route_id + '.json')
 
-    def list(self):
+    def list(self, deleted=False):
         rows = []
         for path in sorted(self.root.glob('*.json')):
             try:
                 doc = validate_route(json.loads(path.read_text(encoding='utf-8')))
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
+            if bool(doc.get('deleted_at')) != bool(deleted):
+                continue
             rows.append(dict(id=doc['id'], name=doc['name'], samples=len(doc['samples']),
                              duration_s=doc['samples'][-1]['t'], created_at=doc.get('created_at'),
-                             notes=doc.get('notes', '')))
+                             notes=doc.get('notes', ''), deleted_at=doc.get('deleted_at')))
         return rows
 
     def load(self, route_id):
         path = self.path_for(route_id)
         if not path.is_file():
             raise ValueError('路线不存在: ' + route_id)
-        return validate_route(json.loads(path.read_text(encoding='utf-8')))
+        doc = validate_route(json.loads(path.read_text(encoding='utf-8')))
+        if doc.get('deleted_at'):
+            raise ValueError('路线已删除，请从回收站恢复')
+        return doc
 
     def save(self, doc):
         doc = validate_route(doc)
         path = self.path_for(doc['id'])
         tmp = path.with_suffix('.json.tmp')
         payload = json.dumps(doc, ensure_ascii=False, indent=2) + '\n'
-        tmp.write_text(payload, encoding='utf-8')
-        tmp.replace(path)
+        with self.lock:
+            tmp.write_text(payload, encoding='utf-8')
+            tmp.replace(path)
         return doc['id']
+
+    def set_deleted(self, route_id, deleted):
+        with self.lock:
+            path = self.path_for(route_id)
+            if not path.is_file():
+                raise ValueError('路线不存在: ' + route_id)
+            doc = validate_route(json.loads(path.read_text(encoding='utf-8')))
+            if deleted:
+                doc.setdefault('deleted_at', now())
+            else:
+                doc.pop('deleted_at', None)
+            self.save(doc)
+            return dict(route_id=route_id, deleted=bool(deleted))
 
 
 class RouteController:
@@ -127,6 +147,13 @@ class RouteController:
 
     def _hw(self):
         return bool(self.guard.cfg.get('hardware_enabled'))
+
+    def set_deleted(self, route_id, deleted):
+        with self.lock:
+            self._require_idle()
+            if self.guard.enabled or (self._play_thread and self._play_thread.is_alive()):
+                raise ValueError('请先停止控制并结束路线，再管理路线')
+            return self.library.set_deleted(route_id, deleted)
 
     def start_record(self, name=None):
         with self.lock:

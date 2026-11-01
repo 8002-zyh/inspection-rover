@@ -1,0 +1,53 @@
+/* Original app-only stylesheet. Design references are documented in docs;
+   no SF Pro font, Apple symbols, logos, or third-party rule text is bundled. */
+html.patrol-apple{color-scheme:light;--bg:#f2f2f7;--panel:#fff;--raised:#f2f2f7;--line:#e1e2e7;--text:#1c1c1e;--muted:#59636d;--accent:#0066cc;--danger:#b42329;--bar:rgba(250,250,252,.94);--soft-blue:#e8f1ff;--soft-green:#e4f3ec;--green-text:#17613b;--soft-amber:#fff1d6;--amber-text:#805000;--soft-red:#ffebec;--radius:20px;font-family:system-ui,Roboto,"Noto Sans",sans-serif;font-size:16px;background:var(--bg)}
+html.patrol-apple[data-appearance=dark]{color-scheme:dark;--bg:#000;--panel:#1c1c1e;--raised:#2c2c2e;--line:#39393d;--text:#f5f5f7;--muted:#b4b4be;--accent:#90beff;--danger:#ffb3b6;--bar:rgba(28,28,30,.94);--soft-blue:#152a47;--soft-green:#163222;--green-text:#94dfb2;--soft-amber:#382b15;--amber-text:#ffd58a;--soft-red:#4b2229}
+.patrol-apple body{background:var(--bg);color:var(--text);font-size:16px;line-height:1.45}
+.patrol-apple .app-header{display:none}.patrol-apple main{padding-top:24px;padding-bottom:110px}
+.patrol-apple h1{font-size:34px;font-weight:750;line-height:1.13;letter-spacing:-1.1px;margin-bottom:8px}
+.patrol-apple h2{font-size:19px;font-weight:650;letter-spacing:-.3px}.patrol-apple .page-heading p{font-size:14px;line-height:1.55;color:var(--muted)}
+.patrol-apple .page-heading{margin-bottom:24px}.patrol-apple .page-heading>.badge{margin-top:7px}
+.patrol-apple button{min-height:48px;border-color:transparent;border-radius:12px;background:var(--raised);color:var(--text);font-size:15px;padding:11px 16px;line-height:1.35;white-space:normal}
+.patrol-apple button:hover{background:var(--soft-blue);border-color:transparent}.patrol-apple button:active{filter:brightness(.92)}
+.patrol-apple button.primary{background:var(--accent);color:#fff}.patrol-apple[data-appearance=dark] button.primary{color:#071b36}
+.patrol-apple button.danger{background:#c62828;color:#fff;border-color:transparent}.patrol-apple button.danger:hover{background:#af2027}.patrol-apple button:disabled{opacity:.4}
+.patrol-apple .card{background:var(--panel);border:0;border-radius:20px;padding:20px;box-shadow:0 1px 3px #00000006}
+.patrol-apple .metrics{gap:10px;margin-bottom:20px}.patrol-apple .metric{display:block;border:0;border-radius:14px;background:var(--panel);padding:14px 16px}
+.patrol-apple .metric-label{display:block;font-size:12px;color:var(--muted);margin-bottom:7px}.patrol-apple .metric strong{font-size:18px;font-weight:650;overflow-wrap:anywhere;white-space:normal}.patrol-apple .metric small{font-size:12px}
+.patrol-apple .badge{border:0;background:var(--raised);color:var(--muted);font-size:12px;padding:6px 10px;border-radius:8px}
+.patrol-apple .badge.accent{background:var(--soft-green);color:var(--green-text)}.patrol-apple .badge.warning{background:var(--soft-amber);color:var(--amber-text)}.patrol-apple .badge.closed{background:var(--raised);color:var(--muted)}
+.patrol-apple .camera-card{padding:0;overflow:hidden}.patrol-apple .camera-card>.card-heading{padding:20px 20px 0;margin-bottom:16px}.patrol-apple .camera-frame{margin:0 12px;aspect-ratio:16/10;border-radius:14px;background:#101010}.patrol-apple .camera-meta{font-size:12px;padding:12px 20px 0;color:var(--muted)}
+.patrol-apple .capture-tools{padding:16px 20px 20px}.patrol-apple .capture-tools .primary{background:var(--soft-blue);color:var(--accent)}
+.patrol-apple .live-label{color:var(--green-text);font-size:11px}.patrol-apple .live-label:before{background:var(--green-text)}
+.patrol-apple .control-status{background:var(--raised);border:0;border-radius:12px;font-size:14px;line-height:1.6;padding:12px 14px;color:var(--muted)}.patrol-apple .control-status.armed{background:var(--soft-green);color:var(--green-text)}
+.patrol-apple #operationalNotice{background:var(--soft-amber);color:var(--amber-text)}
+.patrol-apple .enable-row{gap:10px}.patrol-apple .enable-row button{font-size:15px;padding:12px 7px}
+.patrol-apple .pad{gap:12px;margin:20px auto}.patrol-apple .pad button{background:var(--raised);border:1px solid transparent;border-radius:16px;min-height:76px;font-size:14px;gap:8px}
+.patrol-apple .pad button[data-drive=neutral]{background:var(--raised);color:var(--muted);font-size:13px}.patrol-apple .pad button:active{background:var(--soft-blue);color:var(--accent);border-color:var(--accent)}
+.patrol-apple .pad .icon{width:24px;height:24px}.patrol-apple .control-footer{padding-top:18px;border-color:var(--line)}
+.patrol-apple .toggle{font-size:14px;color:var(--text);min-height:44px}.patrol-apple .toggle input{width:20px;height:20px;accent-color:var(--accent)}
+.patrol-apple .toolbar-note,.patrol-apple .field-label,.patrol-apple .compact-note,.patrol-apple .hint,.patrol-apple .range-status{font-size:12px;line-height:1.65;color:var(--muted)}
+.patrol-apple .range-status.warning{color:var(--amber-text)}.patrol-apple .field-label{font-size:14px;margin-bottom:10px}
+.patrol-apple .route-layout{gap:24px}.patrol-apple .route-layout>div+div{border-color:var(--line)}
+.patrol-apple input:not([type=checkbox]),.patrol-apple select,.patrol-apple textarea{background:var(--raised);border-color:transparent;color:var(--text);border-radius:12px;font-size:16px;padding:13px;min-height:48px}
+.patrol-apple input::placeholder,.patrol-apple textarea::placeholder{color:var(--muted);opacity:1}
+.patrol-apple .route-layout .row button,.patrol-apple .route-buttons button{font-size:14px}.patrol-apple .route-status{font-size:14px;color:var(--muted);border-color:var(--line);padding-top:18px;margin-top:18px}
+.patrol-apple .disclosure{background:var(--panel);border:0;border-radius:14px;padding:0 18px}.patrol-apple .disclosure summary{font-size:14px;color:var(--text);padding:18px 0}.patrol-apple .disclosure li,.patrol-apple .disclosure p{font-size:14px;color:var(--muted)}
+.patrol-apple .evidence-card{padding:0}.patrol-apple .evidence-body{padding:20px}.patrol-apple .evidence-body h2{font-size:19px;margin:14px 0 12px}
+.patrol-apple .evidence-meta{font-size:13px;color:var(--muted);line-height:1.55}.patrol-apple .evidence-body>.row button{font-size:14px;min-height:48px}
+.patrol-apple .analysis-card{background:var(--raised);border:0;border-radius:12px;padding:0 14px}.patrol-apple .analysis-card summary{font-size:14px;color:var(--text);padding:15px 0;line-height:1.6}
+.patrol-apple .analysis-card p{font-size:14px;line-height:1.65;color:var(--text)}.patrol-apple .analysis-card small,.patrol-apple .evidence-details{font-size:12px;color:var(--muted)}.patrol-apple .evidence-details p{font-size:13px}
+.patrol-apple .analysis-card .analysis-error{color:var(--danger)}.patrol-apple .result-label{color:var(--muted);border-color:var(--line);font-size:13px}.patrol-apple pre{color:var(--muted);font-size:12px}
+.patrol-apple .filter-row{gap:8px}.patrol-apple .filter-row button{background:var(--panel);color:var(--muted);font-size:14px;min-height:44px;padding:10px 14px}.patrol-apple .filter-row button.active{background:var(--soft-blue);color:var(--accent);border:0}
+.patrol-apple .empty-state{background:var(--panel);border:0}.patrol-apple .empty-state p{font-size:14px;color:var(--muted)}.patrol-apple .empty-state h3{font-size:20px;font-weight:600}.patrol-apple .count-label{font-size:14px}
+.patrol-apple .notification{top:14px;border:0;background:var(--panel);color:var(--text);box-shadow:0 8px 32px #0002;font-size:14px;border-radius:16px}.patrol-apple .notification button{color:var(--muted);min-width:44px;min-height:44px;top:0;right:0}
+.patrol-apple #login{padding:28px;margin:32px auto}.patrol-apple #login h1{font-size:30px}.patrol-apple #login label{font-size:15px;color:var(--text)}.patrol-apple #login .eyebrow{display:none}.patrol-apple #login .hint{font-size:13px}
+.patrol-apple .app-footer{font-size:11px;line-height:1.7;color:var(--muted);padding:24px 2px 0}.patrol-apple a{color:var(--accent)}
+.patrol-apple .app-nav{border:0;background:var(--bar);box-shadow:0 -1px 0 #00000009;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.patrol-apple .app-nav button{min-height:52px;font-size:12px;color:var(--muted);border-radius:12px}.patrol-apple .app-nav button.active{background:var(--soft-blue);color:var(--accent)}
+.patrol-apple .app-nav #logout,.patrol-apple .nav-spacer{display:none} /* Logout lives on native connection/settings screen. */
+@media(max-width:760px){.patrol-apple main{padding:24px 16px 116px}.patrol-apple .app-nav{bottom:12px;left:12px;right:12px;width:auto;border-radius:22px;padding:8px 10px;gap:8px}.patrol-apple .app-nav button{font-size:12px;gap:5px}.patrol-apple .app-nav button .icon{width:22px;height:22px}.patrol-apple .page-heading{gap:8px}.patrol-apple .page-heading h1{font-size:32px}.patrol-apple .page-heading p{font-size:14px}.patrol-apple .page-heading>button{padding:12px}.patrol-apple .route-layout>div+div{padding-top:24px}.patrol-apple .list{gap:20px}.patrol-apple .utilities{gap:12px}.patrol-apple .evidence-card>.evidence-photo{aspect-ratio:4/3}.patrol-apple .filter-row button{font-size:13px;padding:11px}.patrol-apple .checkpoint-row{flex-wrap:wrap}.patrol-apple .checkpoint-row select{min-width:140px}.patrol-apple .checkpoint-row button{font-size:14px;flex:1}.patrol-apple .route-layout .row{flex-wrap:wrap}.patrol-apple .route-layout .row select{flex:1;min-width:130px}.patrol-apple .route-layout .row button{flex:none}}
+@media(prefers-reduced-motion:reduce){.patrol-apple *{transition:none!important}}
+@media(prefers-reduced-transparency:reduce){.patrol-apple .app-nav{background:var(--panel);backdrop-filter:none}}
+
+.patrol-apple button.text-danger{background:var(--soft-red);color:var(--danger);border:0}.patrol-apple .library-actions>button{min-height:48px;font-size:14px}.patrol-apple .route-trash{font-size:14px;color:var(--muted)}.patrol-apple .route-trash summary{min-height:48px;padding:14px 0}.patrol-apple .trash-row button{min-height:48px;font-size:14px}.patrol-apple .trash-row{border-color:var(--line)}

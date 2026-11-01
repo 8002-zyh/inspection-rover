@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Rover hotspot IP changes. OriginPolicy confines requests to the entered
+         private IPv4 origin; no certificate bypass or JavaScript bridge. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

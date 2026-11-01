@@ -19,6 +19,7 @@
   "range_baud": 921600,
   "front_sensor_id": 0,
   "front_no_target_policy": "allow_supervised",
+  "front_range_failure_policy": "allow_supervised",
   "stop_distance_m": 0.25,
   "obstacle_event_distance_m": 0.8,
   "hardware_enabled": false,

@@ -1,0 +1,10 @@
+<resources>
+    <color name="app_background">#000000</color>
+    <color name="app_surface">#1C1C1E</color>
+    <color name="app_text">#F5F5F7</color>
+    <color name="app_secondary">#B4B4BE</color>
+    <color name="app_accent">#90BEFF</color>
+    <color name="app_on_accent">#071B36</color>
+    <color name="app_stop">#B92530</color>
+    <color name="app_on_stop">#FFFFFF</color>
+</resources>

@@ -1,4 +1,54 @@
+## T-418 路线/异常回收站与图标 0.1.1（2026-11-02 最新）
+- 用户要求删除路线、删除异常及美化APP图标。源码分支feat/R-418-library-cleanup，继承此前未提交工作；未推送。未发送使能、非零指令或路线回放。
+- 路线JSON保留样本，新增deleted_at软删除；车端GET /routes/trash，POST /routes/delete、/routes/restore。操作需路线idle、控制未使能且旧回放线程结束；网页提供“删除所选路线”和可恢复回收站，选路后可删。
+- 事件新增event_trash表，GET /api/events?deleted=1、POST /api/events/<id>/delete、/restore，保留登录/CSRF/设备令牌保护。图片、关联任务与未上传证据保留；重复上传不复活 tombstone，任务仍可处理；待执行AI作业暂缓、恢复后可继续，已开始作业可能完成。删除不回收磁盘空间。
+- 两种删除均使用HTML dialog二次确认（取消/Escape/点遮罩均不删除）；原生confirm在IAB验证时阻塞，已替换且重新部署，仅重启网页服务。页面重载后APP与浏览器共用功能。
+- 新增tests/test_delete.py，67项Python测试+Node HTTP客户端/Android生命周期测试通过；覆盖旧DB迁移、重复删/恢复、重启/补传、任务/图片保留、路径校验、鉴权和录放互斥。实际车端API与浏览器删除/取消/恢复通过，仅操作test-delete-T418-zero及app-upload-test-20261102-01软件夹具，原有路线/任务不改；最终测试路线在回收站，测试事件恢复。根runtime/evidence/delete-restore-T418.json及workbench-route-delete-T418.png、workbench-event-trash-T418.png留有证据，不入Git。
+- 原生图标改为蓝底白色小车+薄荷绿叶，Android adaptive/monochrome资源；版本0.1.1(2)。官方SDK直构建、v2/v3签名与zipalign通过；USB覆盖安装成功，pm版本及已装base.apk SHA256一致：9df722615b63f11aed6393cedc6e4618afd206e81d9a6eb1abe3f664bb78c2c4。根runtime/delivery-20261102-android/保留0.1.0与0.1.1 APK及报告。仅图标及APP库管理样式变化，未改原生控车/权限。
+- 车端备份~/patrol-prototype/backups/T418-before-20261102/，含code-and-routes.tgz及两库在线备份；本轮后端已部署。收尾需保持车静止/路线idle；软删除恢复优先用界面，勿用旧数据库覆盖新增巡检数据。
+- 代码回滚：停车且route idle后在车端目录tar -xzf backups/T418-before-20261102/code-and-routes.tgz，再sh start_car_workbench.sh --hardware（会重启两服务，不会自动使能）。归档含路线快照：仅在尚无新路线时整包回滚，否则tar按patrol/文件选择恢复，保留runtime/robot/routes。数据库新增表可保留，旧代码不读取；不需还原数据库。APK降级用原0.1.0调试包adb install -r -d，不卸载。
+
+## T-417 Android APP 0.1.0（2026-11-02 最新）
+- 用户夜测反馈正常，继续安卓APP；随后提供apple-ui-designer与apple-design-skill设计参考，已读取SKILL/相关规范与许可说明，只参考原则，自写代码/CSS，未复制第三方规范文本。
+- 新增android/独立Java+WebView工程，包cn.rtrc.patrol，min26/target35/compile36.1；地址设置、Cookie登录、同源访问、原生常驻停止、系统选照片、暂停JS定时器/回前台清控制状态、Android返回及系统主题。只保存地址，不内置设备令牌/密码/APIkey。网页浏览器主题不变。
+- 分支feat/R-417-android-app从R-416继承，保留此前未提交的T414/T415/T416工作。本轮未推送或改车端控制程序。
+- Gradle本机因Java AF_UNIX回环报Unable to establish loopback connection未通过；采用scripts/build_android_direct.py调用官方SDK工具构建并校验v2/v3签名与zipalign，无修改JDK/宿主网络。纯Java地址JUnit3项通过；Node原生生命周期JS测试通过。
+- Vivo V2301A USB安装/启动，用户手动更新修正版后pm base.apk SHA256与最新APK一致（0cd00457cd758eadca18cbad575d4392fa0f75fa1470eca9d2a3eaf596102c68）。曾自动审批拦截“检查状态+覆盖安装”组合命令，工具未给具体理由；改由推送APK到Download后用户手动更新，没有绕过安装限制。
+- 实机用户完成APP登录/实时画面/照片选择上传/Home回前台。软件测试事件app-upload-test-20261102-01、任务84a7b131b653463a81ae839c7be40875当前review，说明“APP上传测试”，服务器图片200/685447字节且PIL校验通过。不是夜巡真实异常，不增加真实闭环验收计数。根目录证据runtime/evidence/android-upload-test-20261102.json。
+- APK与说明交付在根runtime/delivery-20261102-android/；手机Download/inspection-rover-0.1.0-debug.apk也留有同包。android/.gitignore排除构建产物、local.properties、签名密钥；不要把手机序列号、照片截图与runtime提交Git。
+- 最新车端静态核对：未使能/RPM0/transport_ok=true/driver_error空，队列pending0/failed0、DB quick_check ok，仍3条原真实closed任务；用户反馈夜测正常，录像、三地面、定位与动态刹停仍缺证据。APP行驶中切后台实测停止时间未验证，未为测试发运动指令。
+- 复现/安装/回滚见docs/安卓APP.md，视觉审查见docs/安卓界面审查.md；卸载APP不影响车端数据。若变更网页DOM需复核APP专用assets样式和生命周期JS的兼容性。
+
+## T-416 工作台 UI 重构（2026-11-01，优先于旧页面说明）
+- 用户要求先看工作台改版，再讨论两小时安卓APP；本轮仅实现网页，尚未开发APK。源码分支feat/R-416-workbench-ui，保留先前未提交的T-414/T-415改动，未推送。
+- index.html重组为现场巡检/异常记录/处理任务，新增static/workbench.css（墨蓝/薄荷绿、移动端底部导航）。主界面只展示连接、控制、待补传、检查点；诊断JSON、历史停止细节和指南默认折叠；关键连接/相机/补传错误仍在页面可见。固定顶部停止按钮，原心跳、离页停车、路线监护及参数不变。
+- 任务按状态筛选，卡片保留前后照片与处理说明，AI结果概要可见，展开查看依据/限制/模型。类别候选含义、人工检查点与时间轴路线边界保留。
+- 修正路线列表刷新：占位option的value现在为空，未选路线禁回放；目录不变时不反复重建select，避免2秒状态轮询打断选路。未发送非零运动、录制或真实回放。
+- 59项Python+Node脚本通过；实机浏览器登录、刷新会话、390px无横向溢出、1280px布局、折叠诊断、空任务筛选、3条closed任务、200张事件卡片加载/无观察到的破图、控制台无错误均已核验。手机实机触控运动/新上传未复测；相应后台接口未改。
+- 已部署，仅重启web server（robot10023保持）；车辆未使能/RPM0/底盘反馈正常，监护放行配置不变。Windows证据runtime/evidence/workbench-ui-T416.json；截图runtime/workbench-ui-desktop.png、workbench-ui-mobile.png、workbench-ui-tasks.png，勿提交私人照片截图。
+- 车端备份backups/workbench-ui-before-T416.tgz。回滚：停车且路线idle后，在~/patrol-prototype执行tar -xzf backups/workbench-ui-before-T416.tgz，再重启网页服务；可用sh start_car_workbench.sh --hardware统一恢复（会同时重启控制，切勿行驶中使用）。新增CSS可留作未引用文件，不影响旧页。
+- 安卓估时：本机已有Android Studio、Java21、SDK android-36.1/build-tools。建议下一轮约2小时做WebView原型：可修改车IP、登录/网页复用、照片选择上传、前后台生命周期停车、APK真机安装测试。未验证Gradle完整构建链，不保证两小时；不扩大为原生全量重写/离线地图/后台无人监护。
+
+## T-415 测距不可用监护放行（2026-11-01 23:06，优先于历史策略）
+- 用户明确授权：人工监护录线/回放不再因缺测距锁车。新增 `front_range_failure_policy=allow_supervised`，已写入车端持久配置；状态7、无回波、坏帧、数据超时/缺失/非有限距离均不因测距原因停止。代码未配置该键时仍默认stop。
+- 只用新鲜≤0.5秒、帧/状态/强度有效且有限正距离做近障判断；有效距离≤0.25m仍停止并需要重新使能。无效数据继续显示不可用，未伪造有效距离或“前方安全”。控制心跳0.5秒、底盘串口失联停车及原速度限幅保持。
+- 修改：config.json、patrol/control.py、patrol/templates/index.html、严格策略测试fixture；新增tests/test_supervised_range.py。59项Python与Node客户端通过；在车端独立Guard（不创建串口驱动）模拟missing/status7/near/stale_near通过。
+- 部署前确认未使能/duty0/新鲜RPM0/route idle；备份 `~/patrol-prototype/backups/supervised-range-before-20261101.tgz`。部署后HTTP200、新策略字段/UI生效、transport_ok=true、driver_error空、未使能/RPM0，未发真实使能或运动指令。证据Windows根目录runtime/evidence/supervised-range-before-20261101.json与supervised-range-after-20261101.json。
+- 运行策略是人工观察兜底，不提供传感器失效时的自动避撞保障；动态近障制动和用户重新录线效果尚未验收，不称自主避障。旧“状态7仍停车”说明已被本项明确替代。
+- 复现：在tmp/ir-push运行 `python -m unittest discover -s tests -q`、`node tests/test_http_client.cjs`。回滚须停车后在车端目录运行 `tar -xzf backups/supervised-range-before-20261101.tgz`，然后 `sh start_car_workbench.sh --hardware`；旧策略会恢复失效锁定，不自动使能。此次未提交/推送。
+
 # 2026-11-01 晚间：T-406云识图、手机闭环与恢复验收
+
+## T-414 重连后使能置灰修复（22:35之后最新）
+- 用户确认原本可使能，点击“重连底盘”后置灰。日志22:31:39/42/45连续重连；静态检查hardware_enabled=true但feedback_at/RPM为空、transport_ok=false，UART仅robot占用，无ttyTHS0 getty冲突。
+- reconnect_chassis现在在停车/路线idle前置检查后核对新鲜反馈；连接健康时直接返回already_connected=true、started=false，不关闭或重开UART，不清除反馈。按钮请求期间禁重复点击，正常时提示“底盘连接正常，可直接使能”。
+- 原robot.py/index.html备份backups/reconnect-noop-before-20261101.tgz；已部署，静态重启服务后恢复新鲜RPM0/transport_ok=true/driver_error空；未发使能或运动。
+- 54项Python+Node通过；真实API连续3次正常重连均返回no-op，反馈始终新鲜且RPM0，HTTP首页已包含新按钮处理。Windows证据runtime/evidence/reconnect-noop-20261101.json。新修复暂未提交，基线efd11fe。
+
+## 换热点重新连接（22:20最新）
+- 用户拍视频后回来更换热点，当前小车 **10.212.93.243**、Windows10.212.93.66；工作台 **http://10.212.93.243:8765/**。原SSH身份严格校验通过，原凭据不变。
+- 服务自启已在，无需重启；首页/相机HTTP200、新鲜轮速0、无driver_error、路线idle、待上传0，3条closed任务保留，数据库quick_check=ok。此次未使能或发送运动。
+- 本地源码已提交 **efd11fe**，尚未推送；下方“本轮未提交”属历史。用户拍视频时要求暂停；本次只恢复连接，户外视频与测试结果待接收审核。
 
 ## 21:30 手机独立操作（最新）
 - 用户明确：室外只有小车和Android有热点信号，电脑将离线，要求手机独立操作。两服务原本就在车上；现已补全手机自助恢复与操作卡，operator仍使用原账号，不新增root权限。

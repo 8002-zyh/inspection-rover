@@ -4,7 +4,7 @@ from patrol.control import Guard
 
 class StopEvidenceTests(unittest.TestCase):
     def guard(self):
-        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,stop_distance_m=.25)
+        cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,stop_distance_m=.25,front_range_failure_policy='stop')
         t=[10.0];g=Guard(cfg,lambda:t[0]);g.transport_ok=True
         return g,t
 

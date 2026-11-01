@@ -5,6 +5,7 @@ from patrol.control import Guard
 class NoTargetTests(unittest.TestCase):
     def guard(self, **overrides):
         cfg=configuration();cfg.update(hardware_enabled=True,front_sensor_id=0,front_no_target_policy='allow_supervised',stop_distance_m=.25)
+        cfg['front_range_failure_policy']='stop'
         cfg.update(overrides)
         t=[10.0];g=Guard(cfg,lambda:t[0]);g.transport_ok=True
         return g,t

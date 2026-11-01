@@ -94,27 +94,39 @@ class Guard:
             self.steering = int(self.cfg['steering_center'] + max(-limit, min(limit, steer)))
             self.output()  # Apply obstacle guard before releasing the command lock.
 
+    def front_measurement(self):
+        """Return usable *current* range; missing data is never a clear-path proof."""
+        sid = self.cfg.get('front_sensor_id')
+        reading = self.ranges.get(int(sid)) if sid is not None else None
+        if not reading:
+            return reading, None, False
+        stamp, distance = reading.get('at'), reading.get('distance')
+        age = self.clock()-stamp if isinstance(stamp, (int, float)) else None
+        usable = bool(age is not None and math.isfinite(age) and 0 <= age <= 0.5
+                      and reading.get('valid') and reading.get('frame_ok') is not False
+                      and reading.get('sensor_status', 0) == 0
+                      and reading.get('strength', 1) > 0
+                      and isinstance(distance, (int, float)) and not isinstance(distance, bool)
+                      and math.isfinite(distance) and distance > 0)
+        return reading, age, usable
+
     def output(self):
         with self.lock:
             if self.enabled and self.clock() - self.last > self.cfg['heartbeat_timeout']:
                 self.stop('控制心跳超时')
             sid = self.cfg.get('front_sensor_id')
             if self.enabled and self.duty > 0 and sid is not None:
-                reading = self.ranges.get(int(sid))
+                reading, age, usable = self.front_measurement()
+                supervised = self.cfg.get('front_range_failure_policy', 'stop') == 'allow_supervised'
                 no_target_allowed = bool(reading and self.cfg.get('front_no_target_policy') == 'allow_supervised'
                                          and reading.get('frame_ok') is True
                                          and (reading.get('sensor_status') == 255
                                               or (reading.get('sensor_status') == 0 and reading.get('strength') == 0)))
-                if not reading or self.clock() - reading['at'] > 0.5:
-                    self.stop('前方测距失效')
-                elif no_target_allowed:
-                    pass  # Explicit supervised policy; not a valid distance or safety proof.
-                elif not reading['valid']:
-                    self.stop('前方测距失效')
-                elif not isinstance(reading.get('distance'), (int, float)) or not math.isfinite(reading['distance']) or reading['distance'] <= 0:
-                    self.stop('前方测距失效')
-                elif reading['distance'] <= self.cfg['stop_distance_m']:
+                if usable and reading['distance'] <= self.cfg['stop_distance_m']:
                     self.stop('前方障碍停车')
+                elif not usable and not supervised:
+                    if not (no_target_allowed and age is not None and 0 <= age <= 0.5):
+                        self.stop('前方测距失效')
             return self.duty if self.enabled else 0.0, self.steering, self.headlight
 
     def set_lights(self, headlight=None, hazard=None):
@@ -134,12 +146,16 @@ class Guard:
         duty, steering, headlight = self.output()
         with self.lock:
             age = None if self.feedback_at is None else max(0, self.clock()-self.feedback_at)
+            front, front_age, front_valid = self.front_measurement()
             return dict(enabled=self.enabled, hardware_enabled=self.cfg['hardware_enabled'],
                         transport_ok=self.transport_ok and age is not None and age < 0.5,
                         feedback_rpm=self.feedback_rpm if age is not None and age < 0.5 else None,
                         feedback_age_seconds=age, driver_error=self.driver_error, reason=self.reason, duty=duty,
                         steering=steering, mode='manual', obstacle_protection=self.cfg.get('front_sensor_id') is not None,
                         front_no_target_policy=self.cfg.get('front_no_target_policy', 'stop'),
+                        front_range_failure_policy=self.cfg.get('front_range_failure_policy', 'stop'),
+                        front_range_valid=front_valid, front_range_age_seconds=front_age,
+                        front_distance_m=front['distance'] if front_valid else None,
                         last_stop=self.last_stop,
                         headlight=headlight, hazard=self.hazard, hazard_supported=self.hazard_supported)
 
